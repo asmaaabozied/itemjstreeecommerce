@@ -46,7 +46,7 @@ class BootstrapTableService {
     $dropdown .= '<button class="btn btn-secondary dropdown-toggle" type="button" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false">';
     $dropdown .= '<i class="' . $iconClass . '"></i>'; // Use the icon class here
     $dropdown .= '</button>';
-    $dropdown .= '<ul class="dropdown-menu" aria-labelledby="dropdownMenuButton">';
+    $dropdown .= '<ul class="dropdown-menu" data-bs-popper="static" aria-labelledby="dropdownMenuButton">';
 
     foreach ($dropdownItems as $item) {
         $dropdown .= '<li><a class="dropdown-item" href="' . $item['url'] . '"><i class="' . $item['icon'] . '"></i> ' . $item['text'] . '</a></li>';

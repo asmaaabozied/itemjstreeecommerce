@@ -5,14 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\Category;
 use App\Models\Package;
 use App\Models\PaymentTransaction;
+use App\Models\UserFcmToken;
 use App\Models\UserPurchasedPackage;
 use App\Services\BootstrapTableService;
 use App\Services\CachingService;
 use App\Services\FileService;
+use App\Services\NotificationService;
 use App\Services\ResponseService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
@@ -25,14 +28,14 @@ class PackageController extends Controller {
     }
 
     public function index() {
-        ResponseService::noAnyPermissionThenRedirect(['item-listing-package-list', 'item-listing-package-create', 'item-listing-package-update', 'item-listing-package-delete']);
+        ResponseService::noAnyPermissionThenRedirect(['advertisement-listing-package-list', 'advertisement-listing-package-create', 'advertisement-listing-package-update', 'advertisement-listing-package-delete']);
         $category = Category::select(['id', 'name'])->where('status', 1)->get();
         $currency_symbol = CachingService::getSystemSettings('currency_symbol');
         return view('packages.item-listing', compact('category', 'currency_symbol'));
     }
 
     public function store(Request $request) {
-        ResponseService::noPermissionThenSendJson('item-listing-package-create');
+        ResponseService::noPermissionThenSendJson('advertisement-listing-package-create');
         $validator = Validator::make($request->all(), [
             'name'                   => 'required',
             'price'                  => 'required|numeric',
@@ -69,7 +72,7 @@ class PackageController extends Controller {
     }
 
     public function show(Request $request) {
-        ResponseService::noPermissionThenSendJson('item-listing-package-list');
+        ResponseService::noPermissionThenSendJson('advertisement-listing-package-list');
         $offset = $request->offset ?? 0;
         $limit = $request->limit ?? 10;
         $sort = $request->sort ?? 'id';
@@ -87,7 +90,7 @@ class PackageController extends Controller {
         $rows = array();
         foreach ($result as $key => $row) {
             $tempRow = $row->toArray();
-            if (Auth::user()->can('item-listing-package-update')) {
+            if (Auth::user()->can('advertisement-listing-package-update')) {
                 $tempRow['operate'] = BootstrapTableService::editButton(route('package.update', $row->id), true);
             }
             $rows[] = $tempRow;
@@ -98,7 +101,7 @@ class PackageController extends Controller {
     }
 
     public function update(Request $request, $id) {
-        ResponseService::noPermissionThenSendJson('item-listing-package-update');
+        ResponseService::noPermissionThenSendJson('advertisement-listing-package-update');
         $validator = Validator::make($request->all(), [
             'name'                   => 'required',
             'price'                  => 'required|numeric',
@@ -141,14 +144,14 @@ class PackageController extends Controller {
 
     /* Advertisement Package */
     public function advertisementIndex() {
-        ResponseService::noAnyPermissionThenRedirect(['advertisement-package-list', 'advertisement-package-create', 'advertisement-package-update', 'advertisement-package-delete']);
+        ResponseService::noAnyPermissionThenRedirect(['featured-advertisement-package-list', 'featured-advertisement-package-create', 'featured-advertisement-package-update', 'featured-advertisement-package-delete']);
         $category = Category::select(['id', 'name'])->where('status', 1)->get();
         $currency_symbol = CachingService::getSystemSettings('currency_symbol');
         return view('packages.advertisement', compact('category', 'currency_symbol'));
     }
 
     public function advertisementShow(Request $request) {
-        ResponseService::noPermissionThenSendJson('advertisement-package-list');
+        ResponseService::noPermissionThenSendJson('featured-advertisement-package-list');
         $offset = $request->offset ?? 0;
         $limit = $request->limit ?? 10;
         $sort = $request->sort ?? 'id';
@@ -168,7 +171,7 @@ class PackageController extends Controller {
             $tempRow = $row->toArray();
             $operate = '';
 //            $operate = '&nbsp;&nbsp;<a  id="' . $row->id . '"  class="btn icon btn-primary btn-sm rounded-pill mt-2 edit_btn editdata"  data-bs-toggle="modal" data-bs-target="#editModal"   title="Edit"><i class="fa fa-edit edit_icon"></i></a>';
-            if (Auth::user()->can('advertisement-package-update')) {
+            if (Auth::user()->can('featured-advertisement-package-update')) {
                 $operate .= BootstrapTableService::editButton(route('package.advertisement.update', $row->id), true);
             }
 
@@ -181,7 +184,7 @@ class PackageController extends Controller {
     }
 
     public function advertisementStore(Request $request) {
-        ResponseService::noPermissionThenSendJson('advertisement-package-create');
+        ResponseService::noPermissionThenSendJson('featured-advertisement-package-create');
         $validator = Validator::make($request->all(), [
             'name'                   => 'required',
             'price'                  => 'required|numeric',
@@ -216,7 +219,7 @@ class PackageController extends Controller {
 
 
     public function advertisementUpdate(Request $request, $id) {
-        ResponseService::noPermissionThenSendJson('advertisement-package-update');
+        ResponseService::noPermissionThenSendJson('featured-advertisement-package-update');
         $validator = Validator::make($request->all(), [
             'name'                   => 'nullable',
             'price'                  => 'required|numeric',
@@ -290,7 +293,7 @@ class PackageController extends Controller {
     }
 
     public function paymentTransactionShow(Request $request) {
-        ResponseService::noPermissionThenSendJson('user-package-list');
+        ResponseService::noPermissionThenSendJson('payment-transactions-list');
         $offset = $request->offset ?? 0;
         $limit = $request->limit ?? 10;
         $sort = $request->sort ?? 'id';
@@ -306,6 +309,7 @@ class PackageController extends Controller {
         $bulkData = array();
         $bulkData['total'] = $total;
         $rows = array();
+
         foreach ($result as $key => $row) {
             $tempRow = $row->toArray();
             $tempRow['created_at'] = Carbon::createFromFormat('Y-m-d H:i:s', $row->created_at)->format('d-m-y H:i:s');
@@ -316,4 +320,93 @@ class PackageController extends Controller {
         $bulkData['rows'] = $rows;
         return response()->json($bulkData);
     }
+
+    public function bankTransferIndex() {
+        ResponseService::noPermissionThenRedirect('payment-transactions-list');
+        return view('packages.bank-transfer');
+    }
+    public function bankTransferShow(Request $request) {
+        ResponseService::noPermissionThenSendJson('payment-transactions-list');
+        $offset = $request->offset ?? 0;
+        $limit = $request->limit ?? 10;
+        $sort = $request->sort ?? 'id';
+        $order = $request->order ?? 'DESC';
+
+        $sql = PaymentTransaction::with('user')->where('payment_gateway' ,'BankTransfer')->orderBy($sort, $order);
+        if (!empty($request->search)) {
+            $sql = $sql->search($request->search);
+        }
+        $total = $sql->count();
+        $sql->skip($offset)->take($limit);
+        $result = $sql->get();
+        $bulkData = array();
+        $bulkData['total'] = $total;
+        $rows = array();
+        foreach ($result as $key => $row) {
+            $tempRow = $row->toArray();
+            $tempRow['created_at'] = Carbon::createFromFormat('Y-m-d H:i:s', $row->created_at)->format('d-m-y H:i:s');
+            $tempRow['updated_at'] = Carbon::createFromFormat('Y-m-d H:i:s', $row->updated_at)->format('d-m-y H:i:s');
+            $tempRow['operate'] = BootstrapTableService::editButton(route('package.bank-transfer.update-status', $row->id), true, '#editStatusModal', 'edit-status', $row->id);
+
+            $rows[] = $tempRow;
+        }
+        $bulkData['rows'] = $rows;
+        return response()->json($bulkData);
+    }
+    public function updateStatus(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'payment_status' => 'required|in:succeed,rejected'
+        ]);
+        if ($validator->fails()) {
+            return ResponseService::validationError($validator->errors()->first());
+        }
+
+        try {
+            DB::beginTransaction();
+            ResponseService::noPermissionThenSendJson('item-update');
+
+            $transaction = PaymentTransaction::findOrFail($id);
+            $transaction->update([
+                'payment_status' => $request->payment_status,
+            ]);
+
+            $userTokens = UserFcmToken::where('user_id', $transaction->user_id)->pluck('fcm_token')->toArray();
+
+            if ($request->payment_status === 'succeed') {
+                $package = Package::find((int) $transaction->order_id);
+
+                if ($package) {
+                    UserPurchasedPackage::create([
+                        'package_id'  => $package->id,
+                        'user_id'     => $transaction->user_id,
+                        'start_date'  => Carbon::now(),
+                        'end_date'    => $package->duration == "unlimited" ? null : Carbon::now()->addDays($package->duration),
+                        'total_limit' => $package->item_limit == "unlimited" ? null : $package->item_limit,
+                        'payment_transactions_id' => $transaction->id,
+                    ]);
+                }
+
+                if (!empty($userTokens)) {
+                    $title = "Package Purchased";
+                    $body = 'Amount :- ' . $transaction->amount;
+                    NotificationService::sendFcmNotification($userTokens, $title, $body, 'payment');
+                }
+            } elseif ($request->payment_status === 'rejected') {
+                if (!empty($userTokens)) {
+                    $title = "Payment Rejected";
+                    $body = "Your payment of " . $transaction->amount . " has been rejected.";
+                    NotificationService::sendFcmNotification($userTokens, $title, $body, 'payment');
+                }
+            }
+
+            DB::commit();
+            return ResponseService::successResponse('Payment Status Updated Successfully');
+        } catch (Throwable $th) {
+            DB::rollBack();
+            ResponseService::logErrorResponse($th, 'PackageController ->updateStatus');
+            return ResponseService::errorResponse('Something Went Wrong');
+        }
+    }
+
 }

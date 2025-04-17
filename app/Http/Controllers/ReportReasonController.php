@@ -100,7 +100,7 @@ class ReportReasonController extends Controller {
     public function usersReports() {
         ResponseService::noPermissionThenRedirect('user-reports-list');
         $users = User::select(["id", "name"])->has('user_reports')->get();
-        $items = Item::select(["id", "name"])->approved()->has('user_reports')->get();
+        $items = Item::select(["id", "name","image"])->approved()->has('user_reports')->get();
         return view('reports.user_reports', compact('users', 'items'));
     }
 
@@ -111,7 +111,11 @@ class ReportReasonController extends Controller {
             $limit = $request->limit ?? 10;
             $sort = $request->sort ?? 'id';
             $order = $request->order ?? 'DESC';
-            $sql = UserReports::with(['user' => fn($q) => $q->select(['id', 'name', 'deleted_at'])->withTrashed(), 'report_reason:id,reason', 'item' => fn($q) => $q->select(['id', 'name', 'deleted_at'])->withTrashed()])->sort($sort, $order);
+            $sql = UserReports::with(['user' => fn($q) => $q->select(['id', 'name', 'deleted_at'])->withTrashed(),
+             'report_reason:id,reason',
+             'item' => fn($q) => $q->select(['id', 'name', 'deleted_at','user_id','image'])
+             ->withTrashed()
+             ->with(['user' => fn($q) => $q->select(['id', 'name', 'deleted_at'])->withTrashed()])])->sort($sort, $order);
 
             if (!empty($request->search)) {
                 $sql = $sql->search($request->search);
@@ -128,7 +132,7 @@ class ReportReasonController extends Controller {
             $rows = [];
             foreach ($res as $row) {
                 $tempRow = $row->toArray();
-                $tempRow['user_status'] = empty($row->user->deleted_at);
+                $tempRow['user_status'] = isset($row->item->user) && empty($row->item->user->deleted_at);
                 $tempRow['item_status'] = empty($row->item->deleted_at);
                 $tempRow['reason'] = empty($row->report_reason_id) ? $row->other_message : $row->report_reason->reason;
                 $rows[] = $tempRow;

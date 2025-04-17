@@ -88,14 +88,14 @@ class PlaceController extends Controller {
     }
 
     public function stateIndex() {
-        ResponseService::noAnyPermissionThenRedirect(['country-list', 'country-create', 'country-update', 'country-delete']);
+        ResponseService::noAnyPermissionThenRedirect(['state-list', 'state-create', 'state-update', 'state-delete']);
         $countries = Country::get();
         return view('places.state', compact('countries'));
     }
 
     public function stateShow(Request $request) {
         try {
-            ResponseService::noPermissionThenSendJson('country-list');
+            ResponseService::noPermissionThenSendJson('state-list');
             $offset = $request->input('offset', 0);
             $limit = $request->input('limit', 15);
             $sort = $request->input('sort', 'id');
@@ -158,6 +158,12 @@ class PlaceController extends Controller {
             'longitude.*' => 'nullable|numeric',
             'country_id' => 'required|exists:countries,id',
             'state_id'   => 'required|exists:states,id'
+        ], [], [
+            'name.*' => 'City name',
+            'latitude.*' => 'Latitude',
+            'longitude.*' => 'Longitude',
+            'country_id' => 'Country',
+            'state_id' => 'State',
         ]);
 
         if ($validator->fails()) {
@@ -195,13 +201,13 @@ class PlaceController extends Controller {
 
     public function cityShow(Request $request) {
         try {
-            ResponseService::noPermissionThenSendJson('country-list');
+            ResponseService::noPermissionThenSendJson('city-list');
             $offset = $request->input('offset', 0);
             $limit = $request->input('limit', 15);
             $sort = $request->input('sort', 'id');
             $order = $request->input('order', 'DESC');
 
-            $sql = City::orderBy($sort, $order)->with('state:id,name', 'country:id,name,emoji');
+            $sql = City::with('state:id,name', 'country:id,name,emoji');
 
 
             if (!empty($request->search)) {
@@ -333,9 +339,11 @@ class PlaceController extends Controller {
     }
 
     public function createArea() {
-        ResponseService::noAnyPermissionThenRedirect(['area-list', 'area-create', 'area-update', 'area-delete', 'get-state', 'get-city']);
+        ResponseService::noAnyPermissionThenRedirect(['area-list', 'area-create', 'area-update', 'area-delete']);
         $countries = Country::all();
-        return view('places.area', compact('countries'));
+        $states = State::get();
+        $cities = city::get();
+        return view('places.area', compact('countries','states','cities'));
     }
 
     public function addArea(Request $request) {
@@ -345,6 +353,8 @@ class PlaceController extends Controller {
             'country_id' => 'required|exists:countries,id',
             'state_id'   => 'required|exists:states,id',
             'city_id'    => 'required|exists:cities,id',
+            'latitude.*' => 'nullable|numeric',
+            'longitude.*' => 'nullable|numeric',
         ]);
         if ($validator->fails()) {
             ResponseService::validationError($validator->errors()->first());
@@ -352,13 +362,15 @@ class PlaceController extends Controller {
         try {
             $state = State::findOrFail($request->state_id);
             $area = [];
-            foreach ($request->name as $name) {
+            foreach ($request->name as $index => $name) {
                 $area[] = [
                     'name'       => $name,
                     'city_id'    => $request->city_id,
                     'state_id'   => $request->state_id,
                     'country_id' => $request->country_id,
                     'state_code' => $state->state_code,
+                    'latitude'   => $request->latitude[$index] ?? null,
+                    'longitude'  => $request->longitude[$index] ?? null,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
@@ -384,7 +396,10 @@ class PlaceController extends Controller {
 
             if (!empty($_GET['search'])) {
                 $search = $_GET['search'];
-                $sql->where('id', 'LIKE', "%$search%")->orwhere('question', 'LIKE', "%$search%")->orwhere('answer', 'LIKE', "%$search%");
+                $sql->where('id', 'LIKE', "%$search%")
+                    ->orwhere('name', 'LIKE', "%$search%")
+                    ->orwhere('latitude', 'LIKE', "%$search%")
+                    ->orwhere('longitude', 'LIKE', "%$search%");
             }
             if (!empty($request->filter)) {
                 $sql = $sql->filter(json_decode($request->filter, false, 512, JSON_THROW_ON_ERROR));

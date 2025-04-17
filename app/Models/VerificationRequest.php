@@ -28,4 +28,12 @@ class   VerificationRequest extends Model
     public function scopeOwner($query){
         return $query->where('user_id', auth()->id());
     }
+    public function scopeSort($query, $column, $order) {
+        if ($column == "user_name") {
+            return $query->leftJoin('users', 'users.id', '=', 'verification_requests.user_id')
+                ->orderBy('users.name', $order)
+                ->select('verification_requests.*');
+        }
+        return $query->orderBy($column, $order);
+    }
 }

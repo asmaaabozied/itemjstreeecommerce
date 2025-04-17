@@ -23,7 +23,6 @@ class BlogController extends Controller {
     }
 
     public function index() {
-
         ResponseService::noAnyPermissionThenRedirect(['blog-list', 'blog-create', 'blog-delete', 'blog-update']);
         return view('blog.index');
     }
@@ -66,13 +65,15 @@ class BlogController extends Controller {
         $sort = $request->input('sort', 'id');
         $order = $request->input('order', 'ASC');
 
-        $sql = Blog::orderBy('created_at', 'desc')->orderBy($sort, $order);
-        $sql->with('category:id,name');
+
+        $sql = Blog::with('category:id,name');
+
         if (!empty($request->search)) {
             $sql = $sql->search($request->search);
         }
+
         $total = $sql->count();
-        $sql->skip($offset)->take($limit);
+        $sql = $sql->sort($sort, $order)->skip($offset)->take($limit);
         $result = $sql->get();
         $bulkData = array();
         $bulkData['total'] = $total;

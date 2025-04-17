@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Category;
 use App\Models\City;
 use App\Models\Country;
 use App\Models\Item;
@@ -17,48 +18,67 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-class ItemController extends Controller {
+class ItemController extends Controller
+{
 
-    public function index() {
+    public function index()
+    {
         ResponseService::noAnyPermissionThenRedirect(['item-list', 'item-update', 'item-delete']);
         $countries = Country::all();
         $cities = City::all();
-        return view('items.index' ,compact('countries','cities'));
+        $categories = Category::whereNull('parent_category_id')->get();
+        $subcategories = Category::whereNotNull('parent_category_id')->get();
+
+        return view('items.index', compact('countries', 'cities', 'subcategories', 'categories'));
     }
 
-    public function show($status , Request $request) {
+    public function show($status, Request $request)
+    {
         try {
             ResponseService::noPermissionThenSendJson('item-list');
             $offset = $request->input('offset', 0);
             $limit = $request->input('limit', 10);
             $sort = $request->input('sort', 'id');
             $order = $request->input('order', 'ASC');
-            $sql = Item::with(['custom_fields', 'category:id,name', 'user:id,name', 'gallery_images','featured_items'])->withTrashed();
+            $sql = Item::with(['custom_fields', 'category:id,name', 'user:id,name', 'gallery_images', 'featured_items'])->withTrashed();
             if (!empty($request->search)) {
                 $sql = $sql->search($request->search);
             }
 
 
-
-
             if ($status == 'approved') {
-                $sql->where('status', 'approved')->getNonExpiredItems()->whereNull('deleted_at') ;
+                $sql->where('status', 'approved')->getNonExpiredItems()->whereNull('items.deleted_at');
             } elseif ($status == 'requested') {
                 $sql->where('status', '!=', 'approved')
                     ->orWhere(function ($query) {
                         $query->where('status', 'approved')
-                              ->whereNotNull('expiry_date')
-                              ->where('expiry_date', '<', Carbon::now())
-                              ->orWhereNotNull('deleted_at');;
+                            ->whereNotNull('expiry_date')
+                            ->where('expiry_date', '<', Carbon::now())
+                            ->orWhereNotNull('items.deleted_at');
                     });
             }
             if (!empty($request->filter)) {
+//
+//                $json = json_decode($request->filter);
+//dd($json);
+//
+//
+//                if ($json ='category_id') {
+//                    $sql->whereIn($json->category_id,explode(",",'all_category_ids'));
+//
+//
+//                }
                 $sql = $sql->filter(json_decode($request->filter, false, 512, JSON_THROW_ON_ERROR));
+
             }
 
             $total = $sql->count();
             $sql = $sql->sort($sort, $order)->skip($offset)->take($limit);
+
+
             $result = $sql->get();
+
+
             $bulkData = array();
             $bulkData['total'] = $total;
             $rows = array();
@@ -102,6 +122,15 @@ class ItemController extends Controller {
                 $tempRow['featured_status'] = $featured_status;
                 $tempRow['operate'] = $operate;
 
+
+//                $allcategory = explode(',', $row->all_category_ids);
+//
+//                $sub = Category::whereIn('id', $allcategory)->pluck('name');
+//                $tempRow['category_id'] = $sub;
+                $tempRow['c1'] = Category::where('id', $row->c1)->first()->name ?? null;
+                $tempRow['c2'] = Category::where('id', $row->c2)->first()->name ?? null;
+                $tempRow['category_id'] = Category::where('id', $row->category_id)->first()->name ?? null;
+
                 $rows[] = $tempRow;
             }
             $bulkData['rows'] = $rows;
@@ -112,7 +141,9 @@ class ItemController extends Controller {
             ResponseService::errorResponse();
         }
     }
-    public function updateItemApproval(Request $request, $id) {
+
+    public function updateItemApproval(Request $request, $id)
+    {
         try {
             ResponseService::noPermissionThenSendJson('item-update');
             $item = Item::with('user')->withTrashed()->findOrFail($id);
@@ -122,7 +153,7 @@ class ItemController extends Controller {
             ]);
             $user_token = UserFcmToken::where('user_id', $item->user->id)->pluck('fcm_token')->toArray();
             if (!empty($user_token)) {
-                NotificationService::sendFcmNotification($user_token, 'About ' . $item->name, "Your Item is " . ucfirst($request->status), "item-update", ['id' => $request->id,]);
+                NotificationService::sendFcmNotification($user_token, 'About ' . $item->name, "Your Advertisement is " . ucfirst($request->status), "item-update", ['id' => $request->id,]);
             }
             ResponseService::successResponse('Advertisement Status Updated Successfully');
         } catch (Throwable $th) {
@@ -131,7 +162,8 @@ class ItemController extends Controller {
         }
     }
 
-    public function destroy($id) {
+    public function destroy($id)
+    {
         ResponseService::noPermissionThenSendJson('item-delete');
 
         try {
@@ -149,24 +181,36 @@ class ItemController extends Controller {
             ResponseService::errorResponse('Something went wrong');
         }
     }
-    public function requestedItem() {
+
+    public function requestedItem()
+    {
         ResponseService::noAnyPermissionThenRedirect(['item-list', 'item-update', 'item-delete']);
         $countries = Country::all();
         $cities = City::all();
-        return view('items.requested_item' ,compact('countries','cities'));
-    }
-    public function searchCities(Request $request)
-    {
-        $countryName = trim($request->query('country_name'));
-        if ($countryName == 'All') {
-            return response()->json(['message' => 'Success', 'data' => []]);
-        }
-        $country = Country::where('name', $countryName)->first();
-        if (!$country) {
-            return response()->json(['message' => 'Success', 'data' => []]);
-        }
-        $cities = City::where('country_id', $country->id)->get();
-        return response()->json(['message' => 'Success', 'data' => $cities]);
+        return view('items.requested_item', compact('countries', 'cities'));
     }
 
+    public function searchCities(Request $request)
+    {
+        if ($request->country_name) {
+            $countryName = trim($request->query('country_name'));
+            if ($countryName == 'All') {
+                return response()->json(['message' => 'Success', 'data' => []]);
+            }
+            $country = Country::where('name', $countryName)->first();
+            if (!$country) {
+                return response()->json(['message' => 'Success', 'data' => []]);
+            }
+            $cities = City::where('country_id', $country->id)->get();
+            return response()->json(['message' => 'Success', 'data' => $cities]);
+        } elseif ($request->c1) {
+
+
+            $sub = Category::where('parent_category_id', $request->c1)->get();
+
+            return response()->json(['message' => 'Success', 'data' => $sub]);
+
+
+        }
+    }
 }

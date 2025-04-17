@@ -63,7 +63,7 @@ class TipController extends Controller {
         $limit = $request->input('limit', 10);
         $sort = $request->input('sort', 'sequence');
         $order = $request->input('order', 'ASC');
-        $sql = Tip::with('translations.language:id,name')->orderBy($sort, $order);
+        $sql = Tip::with('translations.language:id,name')->orderBy($sort, $order)->withTrashed();;
         if (!empty($request->search)) {
             $sql = $sql->search($request->search);
         }

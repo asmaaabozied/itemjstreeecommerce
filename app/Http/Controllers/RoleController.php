@@ -65,7 +65,7 @@ class RoleController extends Controller {
         $no = 1;
         foreach ($res as $row) {
             $operate = BootstrapTableService::button('fa fa-eye', route('roles.show', $row->id), ['btn-info'], ['title' => 'View']);
-            if (Auth::user()->can('role-edit')) {
+            if (Auth::user()->can('role-edit') && Auth::user()->can('role-update')) {
                 $operate .= BootstrapTableService::editButton(route('roles.edit', $row->id), false);
             }
             if ($row->custom_role != 0 && Auth::user()->can('role-delete')) {

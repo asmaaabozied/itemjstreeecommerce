@@ -74,7 +74,7 @@ class Controller extends BaseController {
                             NotificationService::sendFcmNotification(
                                 $userToken,
                                 'About ' . $item->name,
-                                "Your item is " . (is_null($request->status) ? 'Active' : 'Inactive') . " by Admin",
+                                "Your Advertisement is " . (is_null($request->status) ? 'Active' : 'Inactive') . " by Admin",
                                 'item-update',
                                 ['id' => $request->id]
                             );
@@ -111,13 +111,15 @@ class Controller extends BaseController {
     }
 
     public function contactUsUIndex() {
+        ResponseService::noPermissionThenSendJson('user-queries-list');
         return view('contact-us');
     }
 
     public function contactUsShow(Request $request) {
+        ResponseService::noPermissionThenSendJson('user-queries-list');
         $offset = $request->offset ?? 0;
         $limit = $request->limit ?? 10;
-        $sort = $request->input('sort', 'id');
+        $sort = $request->input('sort', 'sequence');
         $order = $request->order ?? 'DESC';
 
         $sql = ContactUs::orderBy($sort, $order);

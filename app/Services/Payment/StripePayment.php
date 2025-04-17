@@ -124,29 +124,29 @@ class StripePayment implements PaymentInterface {
      * @return float|int
      */
     public function minimumAmountValidation($currency, $amount) {
-        $minimumAmount = match ($currency) {
-            'USD', 'EUR', 'INR', 'NZD', 'SGD', 'BRL', 'CAD', 'AUD', 'CHF' => 0.50,
-            'AED', 'PLN', 'RON' => 2.00,
-            'BGN' => 1.00,
-            'CZK' => 15.00,
-            'DKK' => 2.50,
-            'GBP' => 0.30,
-            'HKD' => 4.00,
-            'HUF' => 175.00,
-            'JPY' => 50,
-            'MXN', 'THB' => 10,
-            'MYR' => 2,
-            'NOK', 'SEK' => 3.00,
-            'XAF' => 100
-        };
-        if (!empty($minimumAmount)) {
-            if ($amount > $minimumAmount) {
-                return $amount;
-            }
+        $minimumAmountMap = [
+            'USD' => 0.50, 'EUR' => 0.50, 'INR' => 0.50, 'NZD' => 0.50, 'SGD' => 0.50,
+            'BRL' => 0.50, 'CAD' => 0.50, 'AUD' => 0.50, 'CHF' => 0.50,
+            'AED' => 2.00, 'PLN' => 2.00, 'RON' => 2.00,
+            'BGN' => 1.00, 'CZK' => 15.00, 'DKK' => 2.50,
+            'GBP' => 0.30, 'HKD' => 4.00, 'HUF' => 175.00,
+            'JPY' => 50, 'MXN' => 10, 'THB' => 10, 'MYR' => 2,
+            'NOK' => 3.00, 'SEK' => 3.00, 'XAF' => 100
+        ];
 
-            return $minimumAmount;
+        $zeroDecimalCurrencies = [
+            'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG',
+            'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'
+        ];
+
+        // Convert minimum amount to smallest unit (paise)
+        $minimumAmount = $minimumAmountMap[$currency] ?? 0.50;
+
+        if (!in_array($currency, $zeroDecimalCurrencies)) {
+            $minimumAmount *= 100;  // Convert to smallest unit
+            $amount *= 100;         // Convert amount to smallest unit
         }
 
-        return $amount;
+        return max($amount, $minimumAmount);
     }
 }

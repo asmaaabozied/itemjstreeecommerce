@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class PaymentTransaction extends Model {
     protected $fillable = [
@@ -13,7 +14,8 @@ class PaymentTransaction extends Model {
         'order_id',
         'payment_status',
         'created_at',
-        'updated_at'
+        'updated_at',
+        'payment_receipt'
     ];
     use HasFactory;
 
@@ -30,5 +32,12 @@ class PaymentTransaction extends Model {
                     $q->where('name', 'LIKE', $search);
                 });
         });
+    }
+    public function getPaymentReceiptAttribute($value)
+    {
+        if (!empty($value)) {
+            return url(Storage::url($value));
+        }
+        return $value;
     }
 }

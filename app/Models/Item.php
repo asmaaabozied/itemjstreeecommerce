@@ -10,7 +10,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 
-class Item extends Model {
+class Item extends Model
+{
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
@@ -27,6 +28,8 @@ class Item extends Model {
         'status',
         'rejected_reason',
         'user_id',
+        'c1',
+        'c2',
         'image',
         'country',
         'state',
@@ -39,7 +42,8 @@ class Item extends Model {
     ];
 
     // Relationships
-    public function user() {
+    public function user()
+    {
         return $this->belongsTo(User::class);
     }
 
@@ -48,66 +52,79 @@ class Item extends Model {
         return $this->hasOne(Category::class, 'id', 'category_id');
     }
 
-    public function gallery_images() {
+    public function gallery_images()
+    {
         return $this->hasMany(ItemImages::class);
     }
 
-    public function custom_fields() {
+    public function custom_fields()
+    {
         return $this->hasManyThrough(
             CustomField::class, CustomFieldCategory::class,
             'category_id', 'id', 'category_id', 'custom_field_id'
         );
     }
 
-    public function item_custom_field_values() {
-        return $this->hasMany(ItemCustomFieldValue::class,'item_id');
+    public function item_custom_field_values()
+    {
+        return $this->hasMany(ItemCustomFieldValue::class, 'item_id');
     }
 
-    public function featured_items() {
+    public function featured_items()
+    {
         return $this->hasMany(FeaturedItems::class)->onlyActive();
     }
 
-    public function favourites() {
+    public function favourites()
+    {
         return $this->hasMany(Favourite::class);
     }
 
-    public function item_offers() {
+    public function item_offers()
+    {
         return $this->hasMany(ItemOffer::class);
     }
 
-    public function user_reports() {
+    public function user_reports()
+    {
         return $this->hasMany(UserReports::class);
     }
 
-    public function sliders(): MorphMany {
+    public function sliders(): MorphMany
+    {
         return $this->morphMany(Slider::class, 'model');
     }
 
-    public function area() {
+    public function area()
+    {
         return $this->belongsTo(Area::class);
     }
 
-    public function review() {
+    public function review()
+    {
         return $this->hasMany(SellerRating::class);
     }
+
     // Accessors
-    public function getImageAttribute($image) {
+    public function getImageAttribute($image)
+    {
         return !empty($image) ? url(Storage::url($image)) : $image;
     }
 
     public function getStatusAttribute($value)
     {
-    if ($this->deleted_at) {
-        return "inactive";
-    }
-    if ($this->expiry_date && $this->expiry_date < Carbon::now()) {
-        return "expired";
-    }
-    return $value;
+        if ($this->deleted_at) {
+            return "inactive";
+        }
+        if ($this->expiry_date && $this->expiry_date < Carbon::now()) {
+            return "expired";
+        }
+        return $value;
     }
 
     // Scopes
-    public function scopeSearch($query, $search) {
+    public function scopeSearch($query, $search)
+    {
         $search = "%" . $search . "%";
         return $query->where(function ($q) use ($search) {
             $q->orWhere('name', 'LIKE', $search)
@@ -117,6 +134,8 @@ class Item extends Model {
                 ->orWhere('latitude', 'LIKE', $search)
                 ->orWhere('longitude', 'LIKE', $search)
                 ->orWhere('address', 'LIKE', $search)
+                ->orWhere('c1', 'LIKE', $search)
+                ->orWhere('c2', 'LIKE', $search)
                 ->orWhere('contact', 'LIKE', $search)
                 ->orWhere('show_only_to_premium', 'LIKE', $search)
                 ->orWhere('status', 'LIKE', $search)
@@ -135,22 +154,26 @@ class Item extends Model {
         });
     }
 
-    public function scopeOwner($query) {
+    public function scopeOwner($query)
+    {
         if (Auth::user()->hasRole('User')) {
             return $query->where('user_id', Auth::user()->id);
         }
         return $query;
     }
 
-    public function scopeApproved($query) {
+    public function scopeApproved($query)
+    {
         return $query->where('status', 'approved');
     }
 
-    public function scopeNotOwner($query) {
+    public function scopeNotOwner($query)
+    {
         return $query->where('user_id', '!=', Auth::user()->id);
     }
 
-    public function scopeSort($query, $column, $order) {
+    public function scopeSort($query, $column, $order)
+    {
         if ($column == "user_name") {
             return $query->leftJoin('users', 'users.id', '=', 'items.user_id')
                 ->orderBy('users.name', $order)
@@ -167,28 +190,28 @@ class Item extends Model {
                     if ($value == 'inactive') {
                         $query->whereNotNull('deleted_at')->where(function ($q) {
                             $q->whereNull('expiry_date')
-                              ->orWhere('expiry_date', '>=', Carbon::now());
+                                ->orWhere('expiry_date', '>=', Carbon::now());
                         });
                     } elseif ($value == 'expired') {
                         $query->whereNotNull('expiry_date')
-                              ->where('expiry_date', '<', Carbon::now())->whereNull('deleted_at');
+                            ->where('expiry_date', '<', Carbon::now())->whereNull('deleted_at');
                     } else {
                         if (in_array($value, ['review', 'approved', 'rejected', 'sold out', 'soft rejected', 'permanent rejected', 'resubmitted'])) {
                             $query->whereNull('deleted_at')
-                                  ->where(function ($q) {
-                                      $q->whereNull('expiry_date')
+                                ->where(function ($q) {
+                                    $q->whereNull('expiry_date')
                                         ->orWhere('expiry_date', '>=', Carbon::now());
-                                  });
+                                });
                         }
                         $query->where($column, $value);
                     }
-                }elseif ($column == 'featured_status') {
+                } elseif ($column == 'featured_status') {
                     if ($value == 'featured') {
                         $query->whereHas('featured_items');
                     } elseif ($value == 'premium') {
                         $query->whereDoesntHave('featured_items');
                     }
-                } elseif (in_array($column, ['country', 'state', 'city'])) {
+                } elseif (in_array($column, ['country', 'state', 'city','category_id','c1','c2'])) {
                     $query->where($column, 'LIKE', '%' . $value . '%');
                 } else {
                     $query->where((string)$column, (string)$value);
@@ -198,13 +221,17 @@ class Item extends Model {
         }
         return $query;
     }
-    public function scopeOnlyNonBlockedUsers($query) {
+
+    public function scopeOnlyNonBlockedUsers($query)
+    {
         $blocked_user_ids = BlockUser::where('user_id', Auth::user()->id)
             ->pluck('blocked_user_id');
         return $query->whereNotIn('user_id', $blocked_user_ids);
     }
-    public function scopeGetNonExpiredItems($query) {
-        return $query->where(function($query) {
+
+    public function scopeGetNonExpiredItems($query)
+    {
+        return $query->where(function ($query) {
             $query->where('expiry_date', '>', Carbon::now())->orWhereNull('expiry_date');
         });
     }

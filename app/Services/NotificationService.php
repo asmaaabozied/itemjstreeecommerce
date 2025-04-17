@@ -60,6 +60,8 @@ class NotificationService {
                 $data = [
                     "message" => [
                         "token"        => $registrationID,
+                        "priority"     => "high",   // 🔥 Ensure high priority for immediate delivery
+                        "time_to_live" => 604800,   // 🔥 Keep the message alive for 7 days (max: 4 weeks)
                         "data"         => self::convertToStringRecursively($dataWithTitle),
                         "apns"         => [
                             "headers" => [

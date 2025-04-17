@@ -28,7 +28,6 @@ class CategoryController extends Controller {
 
     public function index() {
         ResponseService::noAnyPermissionThenRedirect(['category-list', 'category-create', 'category-update', 'category-delete']);
-
         return view('category.index');
     }
 
@@ -87,7 +86,7 @@ class CategoryController extends Controller {
         $limit = $request->input('limit', 10);
         $sort = $request->input('sort', 'sequence');
         $order = $request->input('order', 'ASC');
-        $sql = Category::withCount('subcategories')->orderBy($sort, $order)->withCount('custom_fields')->with('subcategories');
+        $sql = Category::withCount('subcategories')->withCount('custom_fields')->with('subcategories');
         if ($id == "0") {
             $sql->whereNull('parent_category_id');
         } else {
@@ -96,9 +95,22 @@ class CategoryController extends Controller {
         if (!empty($request->search)) {
             $sql = $sql->search($request->search);
         }
-        $total = $sql->count();
-        $sql->skip($offset)->take($limit);
+        if ($sort !== 'advertisements_count') {
+            $sql->orderBy($sort, $order);
+        }
         $result = $sql->get();
+
+
+        if ($sort === 'advertisements_count') {
+            $result = $result->sortBy(function ($category) {
+                return $category->all_items_count;
+            }, SORT_REGULAR, strtolower($order) === 'desc')->values();
+
+            $result = $result->slice($offset, $limit)->values();
+        } else {
+            $result = $result->slice($offset, $limit);
+        }
+        $total = $sql->count();
         $bulkData = array();
         $bulkData['total'] = $total;
         $rows = array();
@@ -110,7 +122,7 @@ class CategoryController extends Controller {
                 $operate .= BootstrapTableService::editButton(route('category.edit', $row->id));
             }
 
-            if (Auth::user()->can('category-edit')) {
+            if (Auth::user()->can('category-delete')) {
                 $operate .= BootstrapTableService::deleteButton(route('category.destroy', $row->id));
             }
             if ($row->subcategories_count > 1) {
@@ -119,7 +131,7 @@ class CategoryController extends Controller {
             $tempRow = $row->toArray();
             $tempRow['no'] = $no++;
             $tempRow['operate'] = $operate;
-            $tempRow['items_count'] = $row->all_items_count;
+            $tempRow['advertisements_count'] = $row->all_items_count;
             $rows[] = $tempRow;
         }
         $bulkData['rows'] = $rows;
@@ -192,7 +204,7 @@ class CategoryController extends Controller {
         try {
             $category = Category::find($id);
             if ($category->items_count > 0) {
-                ResponseService::errorResponse('Cannot delete category. It has associated items.');
+                ResponseService::errorResponse('Cannot delete category. It has associated advertisements.');
             }
             if ($category->delete()) {
                 ResponseService::successResponse('Category delete successfully');

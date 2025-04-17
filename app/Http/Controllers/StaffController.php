@@ -59,7 +59,7 @@ class StaffController extends Controller {
 
 
     public function update(Request $request, $id) {
-        ResponseService::noPermissionThenRedirect('staff-edit');
+        ResponseService::noPermissionThenRedirect('staff-update');
         $validator = Validator::make($request->all(), [
             'name'    => 'required',
             'email'   => 'required|email|unique:users,email,' . $id,
@@ -145,7 +145,7 @@ class StaffController extends Controller {
 
 
     public function changePassword(Request $request, $id) {
-        ResponseService::noPermissionThenRedirect('staff-edit');
+        ResponseService::noPermissionThenRedirect('staff-update');
         $validator = Validator::make($request->all(), [
             'new_password'     => 'required|min:8',
             'confirm_password' => 'required|same:new_password'

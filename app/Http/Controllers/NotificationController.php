@@ -80,7 +80,6 @@ class NotificationController extends Controller {
             ResponseService::successResponse('Message Send Successfully', $notification);
 
         } catch (Throwable $th) {
-            dd($th);
             ResponseService::logErrorResponse($th, 'NotificationController -> store');
             ResponseService::errorResponse('Something Went Wrong');
         }

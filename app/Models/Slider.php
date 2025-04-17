@@ -38,7 +38,18 @@ class Slider extends Model {
     }
 
     public function scopeSort($query, $column, $order) {
-        if ($column == "item_name") {
+        if ($column == 'model_name') {
+            $query->when(request('model_type') === 'App\\Models\\Item', function ($q) use ($order) {
+                $q->leftJoin('items', 'items.id', '=', 'sliders.model_id')
+                  ->orderBy('items.name', $order);
+            });
+            $query->when(request('model_type') === 'App\\Models\\Category', function ($q) use ($order) {
+                $q->leftJoin('categories', 'categories.id', '=', 'sliders.model_id')
+                  ->orderBy('categories.name', $order);
+            });
+            return $query->select('sliders.*');
+        }
+        elseif ($column == "item_name") {
             $query = $query->leftjoin('items', 'items.id', '=', 'sliders.item_id')->orderBy('items.name', $order);
         } else {
             $query = $query->orderBy($column, $order);

@@ -47,7 +47,7 @@ class CustomersController extends Controller {
     }
 
     public function show(Request $request) {
-        ResponseService::noPermissionThenSendJson('customer-list');
+        ResponseService::noAnyPermissionThenSendJson(['customer-list','notification-list', 'notification-create', 'notification-update', 'notification-delete']);
         $offset = $request->offset ?? 0;
         $limit = $request->limit ?? 10;
         $sort = $request->sort ?? 'id';
@@ -76,7 +76,7 @@ class CustomersController extends Controller {
             $tempRow['no'] = $no++;
             $tempRow['status'] = empty($row->deleted_at);
             $tempRow['is_verified'] = $row->is_verified;
-            $tempRow['auto_approve_item'] = $row->auto_approve_item;
+            $tempRow['auto_approve_advertisement'] = $row->auto_approve_item;
 
             if (config('app.demo_mode')) {
                 // Get the first two digits, Apply enough asterisks to cover the middle numbers ,  Get the last two digits;

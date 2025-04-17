@@ -158,7 +158,7 @@ class SellerController extends Controller
                 // 'report_rejected_reason' => ($request->status == "rejected") ? $request->report_rejected_reason : ''
             ]);
             if ($request->report_status == "approved") {
-                $seller_rating->delete();
+                $seller_rating->forceDelete();
             }
             ResponseService::successResponse('Report Status Updated Successfully');
         } catch (Throwable $th) {

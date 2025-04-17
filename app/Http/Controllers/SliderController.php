@@ -33,7 +33,7 @@ class SliderController extends Controller {
     public function store(Request $request) {
 
         if (!$request->filled('category_id') && !$request->filled('item') && !$request->filled('link')) {
-            ResponseService::validationError('At least one of the fields (Category, Item, or Third Party Link) is required.');
+            ResponseService::validationError('At least one of the fields (Category, Advertisement, or Third Party Link) is required.');
         }
 
         ResponseService::noPermissionThenRedirect('slider-create');
@@ -95,12 +95,12 @@ class SliderController extends Controller {
         $limit = $request->limit ?? 10;
         $sort = $request->sort ?? 'id';
         $order = $request->order ?? 'DESC';
-        $sql = Slider::with('model')->sort($sort, $order);
+        $sql = Slider::with('model');
         if (!empty($request->search)) {
             $sql = $sql->search($request->search);
         }
         $total = $sql->count();
-        $sql->skip($offset)->take($limit);
+        $sql->sort($sort, $order)->skip($offset)->take($limit);
         $result = $sql->get();
         $bulkData = array();
         $bulkData['total'] = $total;

@@ -23,6 +23,7 @@ use App\Models\ItemImages;
 use App\Models\ItemOffer;
 use App\Models\Language;
 use App\Models\Notifications;
+use App\Models\NumberOtp;
 use App\Models\Package;
 use App\Models\PaymentConfiguration;
 use App\Models\PaymentTransaction;
@@ -55,21 +56,27 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rules\Unique;
 use Stichoza\GoogleTranslate\GoogleTranslate;
+use Twilio\Rest\Client as TwilioRestClient;
+use Illuminate\Support\Str;
 use Throwable;
 
-class ApiController extends Controller {
+class ApiController extends Controller
+{
 
     private string $uploadFolder;
 
-    public function __construct() {
+    public function __construct()
+    {
         $this->uploadFolder = 'item_images';
         if (array_key_exists('HTTP_AUTHORIZATION', $_SERVER) && !empty($_SERVER['HTTP_AUTHORIZATION'])) {
             $this->middleware('auth:sanctum');
         }
     }
 
-    public function getSystemSettings(Request $request) {
+    public function getSystemSettings(Request $request)
+    {
         try {
             $settings = Setting::select(['name', 'value', 'type']);
 
@@ -80,6 +87,9 @@ class ApiController extends Controller {
             $settings = $settings->get();
 
             foreach ($settings as $row) {
+                if (in_array($row->name, ['account_holder_name', 'bank_name', 'account_number', 'ifsc_swift_code', 'bank_transfer_status'])) {
+                    continue;
+                }
                 if ($row->name == "place_api_key") {
                     /*TODO : Encryption will be done here*/
                     //$tempRow[$row->name] = HelperService::encrypt($row->value);
@@ -100,13 +110,14 @@ class ApiController extends Controller {
         }
     }
 
-    public function userSignup(Request $request) {
+    public function userSignup(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
-                'type'          => 'required|in:email,google,phone,apple',
-                'firebase_id'   => 'required',
-                'country_code'  => 'nullable|string',
-                'flag'          => 'boolean',
+                'type' => 'required|in:email,google,phone,apple',
+                'firebase_id' => 'required',
+                'country_code' => 'nullable|string',
+                'flag' => 'boolean',
                 'platform_type' => 'nullable|in:android,ios'
             ]);
 
@@ -142,7 +153,7 @@ class ApiController extends Controller {
                     'profile' => $request->hasFile('profile') ? $request->file('profile')->store('user_profile', 'public') : $request->profile,
                 ]);
                 SocialLogin::updateOrCreate([
-                    'type'    => $request->type,
+                    'type' => $request->type,
                     'user_id' => $user->id
                 ], [
                     'firebase_id' => $request->firebase_id,
@@ -179,17 +190,18 @@ class ApiController extends Controller {
         }
     }
 
-    public function updateProfile(Request $request) {
+    public function updateProfile(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
-                'name'                  => 'nullable|string',
-                'profile'               => 'nullable|mimes:jpg,jpeg,png|max:7168',
-                'email'                 => 'nullable|email|unique:users,email,' . Auth::user()->id,
-                'mobile'                => 'nullable|unique:users,mobile,' . Auth::user()->id,
-                'fcm_id'                => 'nullable',
-                'address'               => 'nullable',
+                'name' => 'nullable|string',
+                'profile' => 'nullable|mimes:jpg,jpeg,png|max:7168',
+                'email' => 'nullable|email|unique:users,email,' . Auth::user()->id,
+                'mobile' => 'nullable|unique:users,mobile,' . Auth::user()->id,
+                'fcm_id' => 'nullable',
+                'address' => 'nullable',
                 'show_personal_details' => 'boolean',
-                'country_code'          => 'nullable|string'
+                'country_code' => 'nullable|string'
             ]);
 
             if ($validator->fails()) {
@@ -217,10 +229,11 @@ class ApiController extends Controller {
         }
     }
 
-    public function getPackage(Request $request) {
+    public function getPackage(Request $request)
+    {
         $validator = Validator::make($request->toArray(), [
             'platform' => 'nullable|in:android,ios',
-            'type'     => 'nullable|in:advertisement,item_listing'
+            'type' => 'nullable|in:advertisement,item_listing'
         ]);
         if ($validator->fails()) {
             ResponseService::validationError($validator->errors()->first());
@@ -258,7 +271,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function assignFreePackage(Request $request) {
+    public function assignFreePackage(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'package_id' => 'required|exists:packages,id',
@@ -277,11 +291,11 @@ class ApiController extends Controller {
             }
 
             UserPurchasedPackage::create([
-                'user_id'     => $user->id,
-                'package_id'  => $request->package_id,
-                'start_date'  => Carbon::now(),
+                'user_id' => $user->id,
+                'package_id' => $request->package_id,
+                'start_date' => Carbon::now(),
                 'total_limit' => $package->item_limit == "unlimited" ? null : $package->item_limit,
-                'end_date'    => $package->duration == "unlimited" ? null : Carbon::now()->addDays($package->duration)
+                'end_date' => $package->duration == "unlimited" ? null : Carbon::now()->addDays($package->duration)
             ]);
             ResponseService::successResponse('Package Purchased Successfully');
         } catch (Throwable $th) {
@@ -290,7 +304,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getLimits(Request $request) {
+    public function getLimits(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'package_type' => 'required|in:item_listing,advertisement',
@@ -300,43 +315,46 @@ class ApiController extends Controller {
             }
             $setting = Setting::where('name', "free_ad_listing")->first()['value'];
             if ($setting == 1) {
-                return ResponseService::successResponse("User is allowed to create Item");
+                return ResponseService::successResponse("User is allowed to create Advertisement");
             }
             $user_package = UserPurchasedPackage::onlyActive()->whereHas('package', function ($q) use ($request) {
                 $q->where('type', $request->package_type);
             })->count();
             if ($user_package > 0) {
-                ResponseService::successResponse("User is allowed to create Item");
+                ResponseService::successResponse("User is allowed to create Advertisement");
             }
-            ResponseService::errorResponse("User is not allowed to create Item", $user_package);
+            ResponseService::errorResponse("User is not allowed to create Advertisement", $user_package);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> getLimits");
             ResponseService::errorResponse();
         }
     }
 
-    public function addItem(Request $request) {
+    public function addItem(Request $request)
+    {
+
+
         try {
             $validator = Validator::make($request->all(), [
-                'name'                 => 'required',
-                'category_id'          => 'required|integer',
-                'price'                => 'required',
-                'description'          => 'required',
-                'latitude'             => 'required',
-                'longitude'            => 'required',
-                'address'              => 'required',
-                'contact'              => 'numeric',
+                'name' => 'required',
+                'category_id' => 'required|integer',
+                'price' => 'required',
+                'description' => 'required',
+                'latitude' => 'required',
+                'longitude' => 'required',
+                'address' => 'required',
+                'contact' => 'numeric',
                 'show_only_to_premium' => 'required|boolean',
-                'video_link'           => 'nullable|url',
-                'gallery_images'       => 'nullable|array|min:1',
-                'gallery_images.*'     => 'nullable|mimes:jpeg,png,jpg|max:7168',
-                'image'                => 'required|mimes:jpeg,png,jpg|max:7168',
-                'country'              => 'required',
-                'state'                => 'nullable',
-                'city'                 => 'required',
-                'custom_field_files'   => 'nullable|array',
+                'video_link' => 'nullable|url',
+                'gallery_images' => 'nullable|array|min:1',
+                'gallery_images.*' => 'nullable|mimes:jpeg,png,jpg|max:7168',
+                'image' => 'required|mimes:jpeg,png,jpg|max:7168',
+                'country' => 'required',
+                'state' => 'nullable',
+                'city' => 'required',
+                'custom_field_files' => 'nullable|array',
                 'custom_field_files.*' => 'nullable|mimes:jpeg,png,jpg,pdf,doc|max:7168',
-                'slug'                 => 'nullable|regex:/^[a-z0-9-]+$/',
+                'slug' => 'nullable|regex:/^[a-z0-9-]+$/',
             ]);
             if ($validator->fails()) {
                 ResponseService::validationError($validator->errors()->first());
@@ -349,15 +367,16 @@ class ApiController extends Controller {
             })->where('user_id', $user->id)->first();
             $free_ad_listing = Setting::where('name', "free_ad_listing")->value('value') ?? 0;
             $auto_approve_item = Setting::where('name', "auto_approve_item")->value('value') ?? 0;
-            if($user->free_ad_listing == 1 || $auto_approve_item == 1){
+            // if($user->free_ad_listing == 1 || $auto_approve_item == 1){
+            if ($user->auto_approve_item == 1) {
                 $status = "approved";
-            }else{
+            } else {
                 $status = "review";
             }
             if ($free_ad_listing == 0 && empty($user_package)) {
-                ResponseService::errorResponse("No Active Package found for Item Creation");
+                ResponseService::errorResponse("No Active Package found for Advertisement Creation");
             }
-            if($user_package){
+            if ($user_package) {
                 ++$user_package->used_limit;
                 $user_package->save();
             }
@@ -367,19 +386,22 @@ class ApiController extends Controller {
                 $slug = HelperService::generateRandomSlug();
             }
             $uniqueSlug = HelperService::generateUniqueSlug(new Item(), $slug);
+            $cat = explode(",", $request->all_category_ids);
 
             $data = [
                 ...$request->all(),
-                'name'        => $request->name,
-                'slug'        => $uniqueSlug,
-                'status'      => $status,
-                'active'      => "deactive",
-                'user_id'     => $user->id,
-                'package_id'  => $user_package->package_id ?? '',
+                'name' => $request->name,
+                'c1' => $cat[0] ?? null,
+                'c2' => $cat[1] ?? null,
+                'slug' => $uniqueSlug,
+                'status' => $status,
+                'active' => "deactive",
+                'user_id' => $user->id,
+                'package_id' => $user_package->package_id ?? '',
                 'expiry_date' => $user_package->end_date ?? null
             ];
             if ($request->hasFile('image')) {
-                $data['image'] = FileService::compressAndUpload($request->file('image'), $this->uploadFolder);
+                $data['image'] = FileService::compressAndUploadAds($request->file('image'), $this->uploadFolder);
             }
             $item = Item::create($data);
 
@@ -387,8 +409,8 @@ class ApiController extends Controller {
                 $galleryImages = [];
                 foreach ($request->file('gallery_images') as $file) {
                     $galleryImages[] = [
-                        'image'      => FileService::compressAndUpload($file, $this->uploadFolder),
-                        'item_id'    => $item->id,
+                        'image' => FileService::compressAndUploadAds($file, $this->uploadFolder),
+                        'item_id' => $item->id,
                         'created_at' => time(),
                         'updated_at' => time(),
                     ];
@@ -402,11 +424,11 @@ class ApiController extends Controller {
                 $itemCustomFieldValues = [];
                 foreach (json_decode($request->custom_fields, true, 512, JSON_THROW_ON_ERROR) as $key => $custom_field) {
                     $itemCustomFieldValues[] = [
-                        'item_id'         => $item->id,
+                        'item_id' => $item->id,
                         'custom_field_id' => $key,
-                        'value'           => json_encode($custom_field, JSON_THROW_ON_ERROR),
-                        'created_at'      => time(),
-                        'updated_at'      => time()
+                        'value' => json_encode($custom_field, JSON_THROW_ON_ERROR),
+                        'created_at' => time(),
+                        'updated_at' => time()
                     ];
                 }
 
@@ -419,11 +441,11 @@ class ApiController extends Controller {
                 $itemCustomFieldValues = [];
                 foreach ($request->custom_field_files as $key => $file) {
                     $itemCustomFieldValues[] = [
-                        'item_id'         => $item->id,
+                        'item_id' => $item->id,
                         'custom_field_id' => $key,
-                        'value'           => !empty($file) ? FileService::upload($file, 'custom_fields_files') : '',
-                        'created_at'      => time(),
-                        'updated_at'      => time()
+                        'value' => !empty($file) ? FileService::upload($file, 'custom_fields_files') : '',
+                        'created_at' => time(),
+                        'updated_at' => time()
                     ];
                 }
 
@@ -445,7 +467,7 @@ class ApiController extends Controller {
             $result = new ItemCollection($result);
 
             DB::commit();
-            ResponseService::successResponse("Item Added Successfully", $result);
+            ResponseService::successResponse("Advertisement Added Successfully", $result);
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorResponse($th, "API Controller -> addItem");
@@ -453,18 +475,19 @@ class ApiController extends Controller {
         }
     }
 
-    public function getItem(Request $request) {
+    public function getItem(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'limit'         => 'nullable|integer',
-            'offset'        => 'nullable|integer',
-            'id'            => 'nullable',
+            'limit' => 'nullable|integer',
+            'offset' => 'nullable|integer',
+            'id' => 'nullable',
             'custom_fields' => 'nullable',
-            'category_id'   => 'nullable',
-            'user_id'       => 'nullable',
-            'min_price'     => 'nullable',
-            'max_price'     => 'nullable',
-            'sort_by'       => 'nullable|in:new-to-old,old-to-new,price-high-to-low,price-low-to-high,popular_items',
-            'posted_since'  => 'nullable|in:all-time,today,within-1-week,within-2-week,within-1-month,within-3-month'
+            'category_id' => 'nullable',
+            'user_id' => 'nullable',
+            'min_price' => 'nullable',
+            'max_price' => 'nullable',
+            'sort_by' => 'nullable|in:new-to-old,old-to-new,price-high-to-low,price-low-to-high,popular_items',
+            'posted_since' => 'nullable|in:all-time,today,within-1-week,within-2-week,within-1-month,within-3-month'
         ]);
 
         if ($validator->fails()) {
@@ -556,7 +579,7 @@ class ApiController extends Controller {
             // Status
             if (!empty($request->status)) {
                 if (in_array($request->status, array('review', 'approved', 'rejected', 'sold out', 'soft rejected', 'permanent rejected', 'resubmitted'))) {
-                    $sql->where('status', $request->status)->getNonExpiredItems();
+                    $sql->where('status', $request->status)->getNonExpiredItems()->whereNull('deleted_at');
                 } elseif ($request->status == 'inactive') {
                     //If status is inactive then display only trashed items
                     $sql->onlyTrashed()->getNonExpiredItems();
@@ -565,7 +588,7 @@ class ApiController extends Controller {
                     $sql->where('status', 'approved')->has('featured_items')->getNonExpiredItems();
                 } elseif ($request->status == 'expired') {
                     $sql->whereNotNull('expiry_date')
-                          ->where('expiry_date', '<', Carbon::now())->whereNull('deleted_at');
+                        ->where('expiry_date', '<', Carbon::now())->whereNull('deleted_at');
                 }
             }
 
@@ -608,6 +631,7 @@ class ApiController extends Controller {
                 }
                 return $cleaned;
             }
+
             $cleanedParameters = removeBackslashesRecursive($request->all());
             if (!empty($cleanedParameters['custom_fields'])) {
                 $customFields = $cleanedParameters['custom_fields'];
@@ -615,15 +639,15 @@ class ApiController extends Controller {
                     if (is_array($value)) {
                         foreach ($value as $arrayValue) {
                             $sql->join('item_custom_field_values as cf' . $customFieldId, function ($join) use ($customFieldId) {
-                                    $join->on('items.id', '=', 'cf' . $customFieldId . '.item_id');
-                                })
+                                $join->on('items.id', '=', 'cf' . $customFieldId . '.item_id');
+                            })
                                 ->where('cf' . $customFieldId . '.custom_field_id', $customFieldId)
                                 ->where('cf' . $customFieldId . '.value', 'LIKE', '%' . trim($arrayValue) . '%');
                         }
                     } else {
                         $sql->join('item_custom_field_values as cf' . $customFieldId, function ($join) use ($customFieldId) {
-                                $join->on('items.id', '=', 'cf' . $customFieldId . '.item_id');
-                            })
+                            $join->on('items.id', '=', 'cf' . $customFieldId . '.item_id');
+                        })
                             ->where('cf' . $customFieldId . '.custom_field_id', $customFieldId)
                             ->where('cf' . $customFieldId . '.value', 'LIKE', '%' . trim($value) . '%');
                     }
@@ -637,7 +661,7 @@ class ApiController extends Controller {
             if (Auth::check()) {
                 $sql->with(['item_offers' => function ($q) {
                     $q->where('buyer_id', Auth::user()->id);
-                }, 'user_reports'         => function ($q) {
+                }, 'user_reports' => function ($q) {
                     $q->where('user_id', Auth::user()->id);
                 }]);
 
@@ -662,7 +686,11 @@ class ApiController extends Controller {
                     ResponseService::errorResponse("No item Found");
                 }
             } else {
-                $result = $sql->paginate();
+                if (!empty($request->limit)) {
+                    $result = $sql->paginate($request->limit);
+                } else {
+                    $result = $sql->paginate();
+                }
 
             }
             //                // Add three regular items
@@ -679,29 +707,30 @@ class ApiController extends Controller {
             //            }
             // Return success response with the fetched items
 
-            ResponseService::successResponse("Item Fetched Successfully", new ItemCollection($result));
+            ResponseService::successResponse("Advertisement Fetched Successfully", new ItemCollection($result));
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> getItem");
             ResponseService::errorResponse();
         }
     }
 
-    public function updateItem(Request $request) {
+    public function updateItem(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'id'                   => 'required',
-            'name'                 => 'nullable',
-            'slug'                 => 'regex:/^[a-z0-9-]+$/',
-            'price'                => 'nullable',
-            'description'          => 'nullable',
-            'latitude'             => 'nullable',
-            'longitude'            => 'nullable',
-            'address'              => 'nullable',
-            'contact'              => 'nullable',
-            'image'                => 'nullable|mimes:jpeg,jpg,png|max:7168',
-            'custom_fields'        => 'nullable',
-            'custom_field_files'   => 'nullable|array',
+            'id' => 'required',
+            'name' => 'nullable',
+            'slug' => 'regex:/^[a-z0-9-]+$/',
+            'price' => 'nullable',
+            'description' => 'nullable',
+            'latitude' => 'nullable',
+            'longitude' => 'nullable',
+            'address' => 'nullable',
+            'contact' => 'nullable',
+            'image' => 'nullable|mimes:jpeg,jpg,png|max:7168',
+            'custom_fields' => 'nullable',
+            'custom_field_files' => 'nullable|array',
             'custom_field_files.*' => 'nullable|mimes:jpeg,png,jpg,pdf,doc|max:7168',
-            'gallery_images'       => 'nullable|array',
+            'gallery_images' => 'nullable|array',
         ]);
         if ($validator->fails()) {
             ResponseService::validationError($validator->errors()->first());
@@ -712,12 +741,19 @@ class ApiController extends Controller {
         try {
 
             $item = Item::owner()->findOrFail($request->id);
+            $auto_approve_item = Setting::where('name', "auto_approve_edited_item")->value('value') ?? 0;
+            if ($auto_approve_item == 1) {
+                $status = "approved";
+            } else {
+                $status = "review";
+            }
 
             $slug = $request->input('slug', $item->slug);
-            $uniqueSlug = HelperService::generateUniqueSlug(new Item(), $slug,$request->id);
+            $uniqueSlug = HelperService::generateUniqueSlug(new Item(), $slug, $request->id);
 
             $data = $request->all();
             $data['slug'] = $uniqueSlug;
+            $data['status'] = $status;
             if ($request->hasFile('image')) {
                 $data['image'] = FileService::compressAndReplace($request->file('image'), $this->uploadFolder, $item->getRawOriginal('image'));
             }
@@ -729,10 +765,10 @@ class ApiController extends Controller {
                 $itemCustomFieldValues = [];
                 foreach (json_decode($request->custom_fields, true, 512, JSON_THROW_ON_ERROR) as $key => $custom_field) {
                     $itemCustomFieldValues[] = [
-                        'item_id'         => $item->id,
+                        'item_id' => $item->id,
                         'custom_field_id' => $key,
-                        'value'           => json_encode($custom_field, JSON_THROW_ON_ERROR),
-                        'updated_at'      => time()
+                        'value' => json_encode($custom_field, JSON_THROW_ON_ERROR),
+                        'updated_at' => time()
                     ];
                 }
 
@@ -746,8 +782,8 @@ class ApiController extends Controller {
                 $galleryImages = [];
                 foreach ($request->file('gallery_images') as $file) {
                     $galleryImages[] = [
-                        'image'      => FileService::compressAndUpload($file, $this->uploadFolder),
-                        'item_id'    => $item->id,
+                        'image' => FileService::compressAndUploadAds($file, $this->uploadFolder),
+                        'item_id' => $item->id,
                         'created_at' => time(),
                         'updated_at' => time(),
                     ];
@@ -767,10 +803,10 @@ class ApiController extends Controller {
                         $file = '';
                     }
                     $itemCustomFieldValues[] = [
-                        'item_id'         => $item->id,
+                        'item_id' => $item->id,
                         'custom_field_id' => $key,
-                        'value'           => $file,
-                        'updated_at'      => time()
+                        'value' => $file,
+                        'updated_at' => time()
                     ];
                 }
 
@@ -797,7 +833,7 @@ class ApiController extends Controller {
 
 
             DB::commit();
-            ResponseService::successResponse("Item Fetched Successfully", $result);
+            ResponseService::successResponse("Advertisement Fetched Successfully", $result);
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorResponse($th, "API Controller -> updateItem");
@@ -805,7 +841,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function deleteItem(Request $request) {
+    public function deleteItem(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'id' => 'required',
@@ -823,17 +860,18 @@ class ApiController extends Controller {
             }
 
             $item->forceDelete();
-            ResponseService::successResponse("Item Deleted Successfully");
+            ResponseService::successResponse("Advertisement Deleted Successfully");
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> deleteItem");
             ResponseService::errorResponse();
         }
     }
 
-    public function updateItemStatus(Request $request) {
+    public function updateItemStatus(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'item_id' => 'required|integer',
-            'status'  => 'required|in:sold out,inactive,active,resubmitted',
+            'status' => 'required|in:sold out,inactive,active,resubmitted',
             // 'sold_to' => 'required_if:status,==,sold out|integer'
             'sold_to' => 'nullable|integer'
         ]);
@@ -844,7 +882,7 @@ class ApiController extends Controller {
         try {
             $item = Item::owner()->whereNotIn('status', ['review', 'permanent rejected'])->withTrashed()->findOrFail($request->item_id);
             if ($item->status == 'permanent rejected' && $request->status == 'resubmitted') {
-                ResponseService::errorResponse("This item is permanently rejected and cannot be resubmitted");
+                ResponseService::errorResponse("This Advertisement is permanently rejected and cannot be resubmitted");
             }
             if ($request->status == "inactive") {
                 $item->delete();
@@ -853,20 +891,21 @@ class ApiController extends Controller {
                 $item->update(['status' => 'review']);
             } else if ($request->status == "sold out") {
                 $item->update([
-                    'status'  => 'sold out',
+                    'status' => 'sold out',
                     'sold_to' => $request->sold_to
                 ]);
             } else {
                 $item->update(['status' => $request->status]);
             }
-            ResponseService::successResponse('Item Status Updated Successfully');
+            ResponseService::successResponse('Advertisement Status Updated Successfully');
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, 'ItemController -> updateItemStatus');
             ResponseService::errorResponse('Something Went Wrong');
         }
     }
 
-    public function getItemBuyerList(Request $request) {
+    public function getItemBuyerList(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'item_id' => 'required|integer'
         ]);
@@ -884,7 +923,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getSubCategories(Request $request) {
+    public function getSubCategories(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'category_id' => 'nullable|integer'
         ]);
@@ -896,30 +936,30 @@ class ApiController extends Controller {
             $sql = Category::withCount(['subcategories' => function ($q) {
                 $q->where('status', 1);
             }])->with('translations')->where(['status' => 1])->orderBy('sequence', 'ASC')
-                ->with(['subcategories'          => function ($query) {
+                ->with(['subcategories' => function ($query) {
                     $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
                         $q->where('status', 1);
                     }]); // Order subcategories by 'sequence'
                 },
-                 'subcategories.subcategories' => function ($query) {
-                    $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
-                        $q->where('status', 1);
-                    }]);
-                },
-                'subcategories.subcategories.subcategories' => function ($query) {
-                    $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
-                        $q->where('status', 1);
-                    }]);
-                },'subcategories.subcategories.subcategories.subcategories' => function ($query) {
-                    $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
-                        $q->where('status', 1);
-                    }]);
-                },'subcategories.subcategories.subcategories.subcategories.subcategories' => function ($query) {
-                    $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
-                        $q->where('status', 1);
-                    }]);
-                }
-            ]);
+                    'subcategories.subcategories' => function ($query) {
+                        $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
+                            $q->where('status', 1);
+                        }]);
+                    },
+                    'subcategories.subcategories.subcategories' => function ($query) {
+                        $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
+                            $q->where('status', 1);
+                        }]);
+                    }, 'subcategories.subcategories.subcategories.subcategories' => function ($query) {
+                        $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
+                            $q->where('status', 1);
+                        }]);
+                    }, 'subcategories.subcategories.subcategories.subcategories.subcategories' => function ($query) {
+                        $query->where('status', 1)->orderBy('sequence', 'ASC')->with('translations')->withCount(['approved_items', 'subcategories' => function ($q) {
+                            $q->where('status', 1);
+                        }]);
+                    }
+                ]);
             if (!empty($request->category_id)) {
                 $sql = $sql->where('parent_category_id', $request->category_id);
             } else if (!empty($request->slug)) {
@@ -941,11 +981,12 @@ class ApiController extends Controller {
         }
     }
 
-    public function getParentCategoryTree(Request $request) {
+    public function getParentCategoryTree(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'child_category_id' => 'nullable|integer',
-            'tree'              => 'nullable|boolean',
-            'slug'              => 'nullable|string'
+            'tree' => 'nullable|boolean',
+            'slug' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -970,7 +1011,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getNotificationList() {
+    public function getNotificationList()
+    {
         try {
             $notifications = Notifications::whereRaw("FIND_IN_SET(" . Auth::user()->id . ",user_id)")->orWhere('send_to', 'all')->orderBy('id', 'DESC')->paginate();
             ResponseService::successResponse("Notification fetched successfully", $notifications);
@@ -980,11 +1022,12 @@ class ApiController extends Controller {
         }
     }
 
-    public function getLanguages(Request $request) {
+    public function getLanguages(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'language_code' => 'required',
-                'type'          => 'nullable|in:app,web'
+                'type' => 'nullable|in:app,web'
             ]);
 
             if ($validator->fails()) {
@@ -1016,7 +1059,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function appPaymentStatus(Request $request) {
+    public function appPaymentStatus(Request $request)
+    {
         try {
             $paypalInfo = $request->all();
             if (!empty($paypalInfo) && isset($_GET['st']) && strtolower($_GET['st']) == "completed") {
@@ -1032,13 +1076,28 @@ class ApiController extends Controller {
         }
     }
 
-    public function getPaymentSettings() {
+    public function getPaymentSettings()
+    {
         try {
             $result = PaymentConfiguration::select(['currency_code', 'payment_method', 'api_key', 'status'])->where('status', 1)->get();
             $response = [];
             foreach ($result as $payment) {
                 $response[$payment->payment_method] = $payment->toArray();
             }
+            $settings = Setting::whereIn('name', [
+                'account_holder_name',
+                'bank_name',
+                'account_number',
+                'ifsc_swift_code',
+                'bank_transfer_status'
+            ])->get();
+
+            $bankDetails = [];
+            foreach ($settings as $row) {
+                $key = ($row->name === 'bank_transfer_status') ? 'status' : $row->name;
+                $bankDetails[$key] = $row->value;
+            }
+            $response['bankTransfer'] = $bankDetails;
             ResponseService::successResponse("Data Fetched Successfully", $response);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> getPaymentSettings");
@@ -1046,7 +1105,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getCustomFields(Request $request) {
+    public function getCustomFields(Request $request)
+    {
         try {
             $customField = CustomField::whereHas('custom_field_category', function ($q) use ($request) {
                 $q->whereIn('category_id', explode(',', $request->input('category_ids')));
@@ -1058,7 +1118,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function makeFeaturedItem(Request $request) {
+    public function makeFeaturedItem(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'item_id' => 'required|integer',
         ]);
@@ -1069,29 +1130,35 @@ class ApiController extends Controller {
             DB::commit();
             $user = Auth::user();
             Item::where('status', 'approved')->findOrFail($request->item_id);
-            $user_package = UserPurchasedPackage::onlyActive()->where(['user_id' => $user->id])->with('package')
+            $user_package = UserPurchasedPackage::onlyActive()
+                ->where(['user_id' => $user->id])
+                ->with('package')
                 ->whereHas('package', function ($q) {
                     $q->where(['type' => 'advertisement']);
-                })->firstOrFail();
+                })
+                ->first();
 
+            if (!$user_package) {
+                return ResponseService::errorResponse('You need to purchase a Featured Ad plan first.');
+            }
             $featuredItems = FeaturedItems::where(['item_id' => $request->item_id, 'package_id' => $user_package->package_id])->first();
             if (!empty($featuredItems)) {
-                ResponseService::errorResponse("Item is already featured");
+                ResponseService::errorResponse("Advertisement is already featured");
             }
 
             ++$user_package->used_limit;
             $user_package->save();
 
             FeaturedItems::create([
-                'item_id'                   => $request->item_id,
-                'package_id'                => $user_package->package_id,
+                'item_id' => $request->item_id,
+                'package_id' => $user_package->package_id,
                 'user_purchased_package_id' => $user_package->id,
-                'start_date'                => date('Y-m-d'),
-                'end_date'                  => $user_package->end_date
+                'start_date' => date('Y-m-d'),
+                'end_date' => $user_package->end_date
             ]);
 
             DB::commit();
-            ResponseService::successResponse("Featured Item Created Successfully");
+            ResponseService::successResponse("Featured Advertisement Created Successfully");
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorResponse($th, "API Controller -> createAdvertisement");
@@ -1099,7 +1166,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function manageFavourite(Request $request) {
+    public function manageFavourite(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'item_id' => 'required',
@@ -1113,10 +1181,10 @@ class ApiController extends Controller {
                 $favouriteItem->user_id = Auth::user()->id;
                 $favouriteItem->item_id = $request->item_id;
                 $favouriteItem->save();
-                ResponseService::successResponse("Item added to Favourite");
+                ResponseService::successResponse("Advertisement added to Favourite");
             } else {
                 $favouriteItem->delete();
-                ResponseService::successResponse("Item remove from Favourite");
+                ResponseService::successResponse("Advertisement remove from Favourite");
             }
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> manageFavourite");
@@ -1124,17 +1192,19 @@ class ApiController extends Controller {
         }
     }
 
-    public function getFavouriteItem(Request $request) {
+    public function getFavouriteItem(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'page' => 'nullable|integer',
+                'limit' => 'nullable|integer',
             ]);
             if ($validator->fails()) {
                 ResponseService::validationError($validator->errors()->first());
             }
             $favouriteItemIDS = Favourite::where('user_id', Auth::user()->id)->select('item_id')->pluck('item_id');
             $items = Item::whereIn('id', $favouriteItemIDS)
-                ->with('user:id,name,email,mobile,profile,country_code', 'category:id,name,image', 'gallery_images:id,image,item_id', 'featured_items', 'favourites', 'item_custom_field_values.custom_field')->where('status', '<>', 'sold out')->getNonExpiredItems()->paginate();
+                ->with('user:id,name,email,mobile,profile,country_code', 'category:id,name,image', 'gallery_images:id,image,item_id', 'featured_items', 'favourites', 'item_custom_field_values.custom_field')->where('status', 'approved')->onlyNonBlockedUsers()->getNonExpiredItems()->paginate();
 
             ResponseService::successResponse("Data Fetched Successfully", new ItemCollection($items));
         } catch (Throwable $th) {
@@ -1142,23 +1212,25 @@ class ApiController extends Controller {
             ResponseService::errorResponse();
         }
     }
-    public function getSlider() {
+
+    public function getSlider()
+    {
         try {
             $rows = Slider::with(['model' => function (MorphTo $morphTo) {
                 $morphTo->constrain([Category::class => function ($query) {
                     $query->withCount('subcategories');
                 }]);
             }])
-            // ->whereHas('model')
-            ->where(function ($query) {
-                $query->whereNull('model_type')
-                      ->orWhere(function ($query) {
-                          $query->whereHasMorph('model', [Category::class, Item::class], function ($subQuery) {
-                              $subQuery->whereNotNull('id');
-                          });
-                      });
-            })
-            ->get();
+                // ->whereHas('model')
+                ->where(function ($query) {
+                    $query->whereNull('model_type')
+                        ->orWhere(function ($query) {
+                            $query->whereHasMorph('model', [Category::class, Item::class], function ($subQuery) {
+                                $subQuery->whereNotNull('id');
+                            });
+                        });
+                })
+                ->get();
             ResponseService::successResponse(null, $rows);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> getSlider");
@@ -1166,7 +1238,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getReportReasons(Request $request) {
+    public function getReportReasons(Request $request)
+    {
         try {
             $report_reason = new ReportReason();
             if (!empty($request->id)) {
@@ -1182,12 +1255,13 @@ class ApiController extends Controller {
         }
     }
 
-    public function addReports(Request $request) {
+    public function addReports(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
-                'item_id'          => 'required',
+                'item_id' => 'required',
                 'report_reason_id' => 'required_without:other_message',
-                'other_message'    => 'required_without:report_reason_id'
+                'other_message' => 'required_without:report_reason_id'
             ]);
             if ($validator->fails()) {
                 ResponseService::validationError($validator->errors()->first());
@@ -1199,7 +1273,7 @@ class ApiController extends Controller {
             }
             UserReports::create([
                 ...$request->all(),
-                'user_id'       => $user->id,
+                'user_id' => $user->id,
                 'other_message' => $request->other_message ?? '',
             ]);
             ResponseService::successResponse("Report Submitted Successfully");
@@ -1209,7 +1283,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function setItemTotalClick(Request $request) {
+    public function setItemTotalClick(Request $request)
+    {
         try {
 
             $validator = Validator::make($request->all(), [
@@ -1227,7 +1302,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getFeaturedSection(Request $request) {
+    public function getFeaturedSection(Request $request)
+    {
         try {
             $featureSection = FeatureSection::orderBy('sequence', 'ASC');
 
@@ -1257,7 +1333,7 @@ class ApiController extends Controller {
                 if (isset($request->area_id)) {
                     $items = $items->where('area_id', $request->area_id);
                 }
-                if(isset($request->latitude) &&  isset($request->longitude) && isset($request->radius)){
+                if (isset($request->latitude) && isset($request->longitude) && isset($request->radius)) {
                     $latitude = $request->latitude;
                     $longitude = $request->longitude;
                     $radius = $request->radius;
@@ -1270,7 +1346,7 @@ class ApiController extends Controller {
                                     + sin(radians($latitude))
                                     * sin(radians(latitude))))";
 
-                    $items= $items->select('items.*')
+                    $items = $items->select('items.*')
                         ->selectRaw("{$haversine} AS distance")
                         ->where('latitude', '!=', 0)
                         ->where('longitude', '!=', 0)
@@ -1290,7 +1366,7 @@ class ApiController extends Controller {
                 if (Auth::check()) {
                     $items->with(['item_offers' => function ($q) {
                         $q->where('buyer_id', Auth::user()->id);
-                    }, 'user_reports'           => function ($q) {
+                    }, 'user_reports' => function ($q) {
                         $q->where('user_id', Auth::user()->id);
                     }]);
                 }
@@ -1316,20 +1392,29 @@ class ApiController extends Controller {
         }
     }
 
-    public function getPaymentIntent(Request $request) {
+    public function getPaymentIntent(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'package_id'     => 'required',
-            'payment_method' => 'required|in:Stripe,Razorpay,Paystack,PhonePe,FlutterWave',
-            'platform_type'  => 'required_if:payment_method,==,Paystack|string'
+            'package_id' => 'required',
+            'payment_method' => 'required|in:Stripe,Razorpay,Paystack,PhonePe,FlutterWave,bankTransfer',
+            'platform_type' => 'required_if:payment_method,==,Paystack|string'
         ]);
         if ($validator->fails()) {
             ResponseService::validationError($validator->errors()->first());
         }
         try {
             DB::beginTransaction();
-            $paymentConfigurations = PaymentConfiguration::where(['status' => 1, 'payment_method' => $request->payment_method])->first();
-            if (empty($paymentConfigurations)) {
-                ResponseService::errorResponse("Payment is not Enabled");
+
+            if ($request->payment_method !== 'bankTransfer') {
+                $paymentConfigurations = PaymentConfiguration::where(['status' => 1, 'payment_method' => $request->payment_method])->first();
+                if (empty($paymentConfigurations)) {
+                    ResponseService::errorResponse("Payment is not Enabled");
+                }
+            } else {
+                $bankTransferEnabled = Setting::where('name', 'bank_transfer_status')->value('value');
+                if ($bankTransferEnabled != 1) {
+                    ResponseService::errorResponse("Bank Transfer is not enabled.");
+                }
             }
 
             $package = Package::whereNot('final_price', 0)->findOrFail($request->package_id);
@@ -1338,22 +1423,42 @@ class ApiController extends Controller {
             if (!empty($purchasedPackage)) {
                 ResponseService::errorResponse("You already have purchased this package");
             }
+            if ($request->payment_method === 'bankTransfer') {
+                $existingTransaction = PaymentTransaction::where('user_id', Auth::user()->id)
+                    ->where('payment_gateway', 'BankTransfer')
+                    ->where('order_id', $package->id)
+                    ->whereIn('payment_status', ['pending', 'under review'])
+                    ->exists();
+
+                if ($existingTransaction) {
+                    return ResponseService::errorResponse("A bank transfer transaction for this package already exists.");
+                }
+            }
+            $orderId = ($request->payment_method === 'bankTransfer') ? $package->id : null;
+
             //Add Payment Data to Payment Transactions Table
             $paymentTransactionData = PaymentTransaction::create([
-                'user_id'         => Auth::user()->id,
-                'amount'          => $package->final_price,
+                'user_id' => Auth::user()->id,
+                'amount' => $package->final_price,
                 'payment_gateway' => ucfirst($request->payment_method),
-                'payment_status'  => 'Pending',
-                'order_id'        => null
+                'payment_status' => 'Pending',
+                'order_id' => $orderId
             ]);
 
+            if ($request->payment_method === 'bankTransfer') {
+                DB::commit();
+                ResponseService::successResponse("Bank transfer initiated. Please complete the transfer and update the transaction.", [
+                    "payment_transaction_id" => $paymentTransactionData->id,
+                    "payment_transaction" => $paymentTransactionData
+                ]);
+            }
 
             $paymentIntent = PaymentService::create($request->payment_method)->createAndFormatPaymentIntent(round($package->final_price, 2), [
                 'payment_transaction_id' => $paymentTransactionData->id,
-                'package_id'             => $package->id,
-                'user_id'                => Auth::user()->id,
-                'email'                  => Auth::user()->email,
-                'platform_type'          => $request->platform_type
+                'package_id' => $package->id,
+                'user_id' => Auth::user()->id,
+                'email' => Auth::user()->email,
+                'platform_type' => $request->platform_type
             ]);
             $paymentTransactionData->update(['order_id' => $paymentIntent['id']]);
 
@@ -1373,7 +1478,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getPaymentTransactions(Request $request) {
+    public function getPaymentTransactions(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'latest_only' => 'nullable|boolean'
         ]);
@@ -1400,6 +1506,7 @@ class ApiController extends Controller {
                         PaymentTransaction::find($data->id)->update(['payment_status' => $paymentIntent['status'] ?? "failed"]);
                     }
                 }
+                $data->payment_reciept = $data->payment_reciept;
                 return $data;
             });
 
@@ -1410,11 +1517,12 @@ class ApiController extends Controller {
         }
     }
 
-    public function createItemOffer(Request $request) {
+    public function createItemOffer(Request $request)
+    {
 
         $validator = Validator::make($request->all(), [
             'item_id' => 'required|integer',
-            'amount'  => 'nullable|numeric',
+            'amount' => 'nullable|numeric',
         ]);
         if ($validator->fails()) {
             ResponseService::validationError($validator->errors()->first());
@@ -1422,23 +1530,23 @@ class ApiController extends Controller {
         try {
             $item = Item::approved()->notOwner()->findOrFail($request->item_id);
             $itemOffer = ItemOffer::updateOrCreate([
-                'item_id'   => $request->item_id,
-                'buyer_id'  => Auth::user()->id,
+                'item_id' => $request->item_id,
+                'buyer_id' => Auth::user()->id,
                 'seller_id' => $item->user_id,
             ], ['amount' => $request->amount,]);
 
             $itemOffer = $itemOffer->load('seller:id,name,profile', 'buyer:id,name,profile', 'item:id,name,description,price,image');
 
             $fcmMsg = [
-                'user_id'           => $itemOffer->buyer->id,
-                'user_name'         => $itemOffer->buyer->name,
-                'user_profile'      => $itemOffer->buyer->profile,
-                'user_type'         => 'Buyer',
-                'item_id'           => $itemOffer->item->id,
-                'item_name'         => $itemOffer->item->name,
-                'item_image'        => $itemOffer->item->image,
-                'item_price'        => $itemOffer->item->price,
-                'item_offer_id'     => $itemOffer->id,
+                'user_id' => $itemOffer->buyer->id,
+                'user_name' => $itemOffer->buyer->name,
+                'user_profile' => $itemOffer->buyer->profile,
+                'user_type' => 'Buyer',
+                'item_id' => $itemOffer->item->id,
+                'item_name' => $itemOffer->item->name,
+                'item_image' => $itemOffer->item->image,
+                'item_price' => $itemOffer->item->price,
+                'item_offer_id' => $itemOffer->id,
                 'item_offer_amount' => $itemOffer->amount,
                 // 'type'              => $notificationPayload['message_type'],
                 // 'message_type_temp' => $notificationPayload['message_type']
@@ -1451,14 +1559,15 @@ class ApiController extends Controller {
                 NotificationService::sendFcmNotification($user_token, 'New Offer', $message, "offer", $fcmMsg);
             }
 
-            ResponseService::successResponse("Item Offer Created Successfully", $itemOffer,);
+            ResponseService::successResponse("Advertisement Offer Created Successfully", $itemOffer,);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> createItemOffer");
             ResponseService::errorResponse();
         }
     }
 
-    public function getChatList(Request $request) {
+    public function getChatList(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:seller,buyer'
         ]);
@@ -1477,11 +1586,11 @@ class ApiController extends Controller {
                 $query->whereNull('deleted_at');
             })
                 ->with(['chat' => function ($query) {
-                    $query->latest('updated_at')->select('updated_at', 'item_offer_id','is_read','sender_id');
+                    $query->latest('updated_at')->select('updated_at', 'item_offer_id', 'is_read', 'sender_id');
                 }])->withCount([
                     'chat as unread_chat_count' => function ($query) {
                         $query->where('is_read', 0)
-                             ->where('sender_id', '!=', Auth::user()->id);
+                            ->where('sender_id', '!=', Auth::user()->id);
                     }
                 ])
                 ->orderBy('id', 'DESC');
@@ -1491,7 +1600,7 @@ class ApiController extends Controller {
                 $itemOffer = $itemOffer->where('buyer_id', Auth::user()->id);
             }
             $itemOffer = $itemOffer->paginate();
-
+            $totalUnreadChatCount = $itemOffer->sum('unread_chat_count');
 
             $itemOffer->getCollection()->transform(function ($value) use ($request, $authUserBlockList, $otherUserBlockList) {
                 // Your code here
@@ -1516,20 +1625,20 @@ class ApiController extends Controller {
                 $offer['last_message_time'] = $offer->chat->isNotEmpty() ? $offer->chat->first()->updated_at : null;
                 return $offer;
             });
-
-            ResponseService::successResponse("Chat List Fetched Successfully", $itemOffer);
+            ResponseService::successResponse("Chat List Fetched Successfully", $itemOffer, ['total_unread_chat_count' => $totalUnreadChatCount]);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> getChatList");
             ResponseService::errorResponse();
         }
     }
 
-    public function sendMessage(Request $request) {
+    public function sendMessage(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'item_offer_id' => 'required|integer',
-            'message'       => (!$request->file('file') && !$request->file('audio')) ? "required" : "nullable",
-            'file'          => 'nullable|mimes:jpg,jpeg,png|max:7168',
-            'audio'         => 'nullable|mimetypes:audio/mpeg,video/webm,audio/ogg,video/mp4,audio/x-wav,text/plain|max:7168',
+            'message' => (!$request->file('file') && !$request->file('audio')) ? "required" : "nullable",
+            'file' => 'nullable|mimes:jpg,jpeg,png|max:7168',
+            'audio' => 'nullable|mimetypes:audio/mpeg,video/webm,audio/ogg,video/mp4,audio/x-wav,text/plain|max:7168',
         ]);
         if ($validator->fails()) {
             ResponseService::validationError($validator->errors()->first());
@@ -1576,12 +1685,12 @@ class ApiController extends Controller {
                 }
             }
             $chat = Chat::create([
-                'sender_id'     => Auth::user()->id,
+                'sender_id' => Auth::user()->id,
                 'item_offer_id' => $request->item_offer_id,
-                'message'       => $request->message,
-                'file'          => $request->hasFile('file') ? FileService::compressAndUpload($request->file('file'), 'chat') : '',
-                'audio'         => $request->hasFile('audio') ? FileService::compressAndUpload($request->file('audio'), 'chat') : '',
-                'is_read'       => 0
+                'message' => $request->message,
+                'file' => $request->hasFile('file') ? FileService::compressAndUpload($request->file('file'), 'chat') : '',
+                'audio' => $request->hasFile('audio') ? FileService::compressAndUpload($request->file('audio'), 'chat') : '',
+                'is_read' => 0
             ]);
 
             if ($itemOffer->seller_id == $user->id) {
@@ -1594,24 +1703,24 @@ class ApiController extends Controller {
             $notificationPayload = $chat->toArray();
 
             $unreadMessagesCount = Chat::where('item_offer_id', $itemOffer->id)
-            ->where('is_read', 0)
-            ->count();
+                ->where('is_read', 0)
+                ->count();
 
             $fcmMsg = [
                 ...$notificationPayload,
-                'user_id'           => $user->id,
-                'user_name'         => $user->name,
-                'user_profile'      => $user->profile,
-                'user_type'         => $userType,
-                'item_id'           => $itemOffer->item->id,
-                'item_name'         => $itemOffer->item->name,
-                'item_image'        => $itemOffer->item->image,
-                'item_price'        => $itemOffer->item->price,
-                'item_offer_id'     => $itemOffer->id,
+                'user_id' => $user->id,
+                'user_name' => $user->name,
+                'user_profile' => $user->profile,
+                'user_type' => $userType,
+                'item_id' => $itemOffer->item->id,
+                'item_name' => $itemOffer->item->name,
+                'item_image' => $itemOffer->item->image,
+                'item_price' => $itemOffer->item->price,
+                'item_offer_id' => $itemOffer->id,
                 'item_offer_amount' => $itemOffer->amount,
-                'type'              => $notificationPayload['message_type'],
+                'type' => $notificationPayload['message_type'],
                 'message_type_temp' => $notificationPayload['message_type'],
-                'unread_count'      => $unreadMessagesCount
+                'unread_count' => $unreadMessagesCount
             ];
             /* message_type is reserved keyword in FCM so removed here*/
             unset($fcmMsg['message_type']);
@@ -1627,7 +1736,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getChatMessages(Request $request) {
+    public function getChatMessages(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'item_offer_id' => 'required',
         ]);
@@ -1649,7 +1759,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function deleteUser() {
+    public function deleteUser()
+    {
         try {
             User::findOrFail(Auth::user()->id)->forceDelete();
             ResponseService::successResponse("User Deleted Successfully");
@@ -1659,11 +1770,12 @@ class ApiController extends Controller {
         }
     }
 
-    public function inAppPurchase(Request $request) {
+    public function inAppPurchase(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'purchase_token' => 'required',
             'payment_method' => 'required|in:google,apple',
-            'package_id'     => 'required|integer'
+            'package_id' => 'required|integer'
         ]);
 
         if ($validator->fails()) {
@@ -1678,19 +1790,19 @@ class ApiController extends Controller {
             }
 
             PaymentTransaction::create([
-                'user_id'         => Auth::user()->id,
-                'amount'          => $package->final_price,
+                'user_id' => Auth::user()->id,
+                'amount' => $package->final_price,
                 'payment_gateway' => $request->payment_method,
-                'order_id'        => $request->purchase_token,
-                'payment_status'  => 'success',
+                'order_id' => $request->purchase_token,
+                'payment_status' => 'success',
             ]);
 
             UserPurchasedPackage::create([
-                'user_id'     => Auth::user()->id,
-                'package_id'  => $request->package_id,
-                'start_date'  => Carbon::now(),
+                'user_id' => Auth::user()->id,
+                'package_id' => $request->package_id,
+                'start_date' => Carbon::now(),
                 'total_limit' => $package->item_limit == "unlimited" ? null : $package->item_limit,
-                'end_date'    => $package->duration == "unlimited" ? null : Carbon::now()->addDays($package->duration)
+                'end_date' => $package->duration == "unlimited" ? null : Carbon::now()->addDays($package->duration)
             ]);
             ResponseService::successResponse("Package Purchased Successfully");
         } catch (Throwable $th) {
@@ -1699,7 +1811,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function blockUser(Request $request) {
+    public function blockUser(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'blocked_user_id' => 'required|integer',
         ]);
@@ -1708,7 +1821,7 @@ class ApiController extends Controller {
         }
         try {
             BlockUser::create([
-                'user_id'         => Auth::user()->id,
+                'user_id' => Auth::user()->id,
                 'blocked_user_id' => $request->blocked_user_id,
             ]);
             ResponseService::successResponse("User Blocked Successfully");
@@ -1718,7 +1831,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function unblockUser(Request $request) {
+    public function unblockUser(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'blocked_user_id' => 'required|integer',
         ]);
@@ -1727,7 +1841,7 @@ class ApiController extends Controller {
         }
         try {
             BlockUser::where([
-                'user_id'         => Auth::user()->id,
+                'user_id' => Auth::user()->id,
                 'blocked_user_id' => $request->blocked_user_id,
             ])->delete();
             ResponseService::successResponse("User Unblocked Successfully");
@@ -1737,7 +1851,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getBlockedUsers() {
+    public function getBlockedUsers()
+    {
         try {
             $blockedUsers = BlockUser::where('user_id', Auth::user()->id)->pluck('blocked_user_id');
             $users = User::whereIn('id', $blockedUsers)->select(['id', 'name', 'profile'])->get();
@@ -1748,7 +1863,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getTips() {
+    public function getTips()
+    {
         try {
             $tips = Tip::select(['id', 'description'])->orderBy('sequence', 'ASC')->with('translations')->get();
             ResponseService::successResponse("Tips Fetched Successfully", $tips);
@@ -1758,12 +1874,13 @@ class ApiController extends Controller {
         }
     }
 
-    public function getBlog(Request $request) {
+    public function getBlog(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'category_id' => 'nullable|integer|exists:categories,id',
-                'blog_id'     => 'nullable|integer|exists:blogs,id',
-                'sort_by'     => 'nullable|in:new-to-old,old-to-new,popular',
+                'blog_id' => 'nullable|integer|exists:blogs,id',
+                'sort_by' => 'nullable|in:new-to-old,old-to-new,popular',
             ]);
 
             if ($validator->fails()) {
@@ -1803,7 +1920,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getCountries(Request $request) {
+    public function getCountries(Request $request)
+    {
         try {
             $searchQuery = $request->search ?? '';
             $countries = Country::withCount('states')->where('name', 'LIKE', "%{$searchQuery}%")->orderBy('name', 'ASC')->paginate();
@@ -1815,10 +1933,11 @@ class ApiController extends Controller {
         }
     }
 
-    public function getStates(Request $request) {
+    public function getStates(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'country_id' => 'nullable|integer',
-            'search'     => 'nullable|string'
+            'search' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -1844,11 +1963,12 @@ class ApiController extends Controller {
         }
     }
 
-    public function getCities(Request $request) {
+    public function getCities(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'state_id' => 'nullable|integer',
-                'search'   => 'nullable|string'
+                'search' => 'nullable|string'
             ]);
 
             if ($validator->fails()) {
@@ -1872,10 +1992,11 @@ class ApiController extends Controller {
         }
     }
 
-    public function getAreas(Request $request) {
+    public function getAreas(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'city_id' => 'nullable|integer',
-            'search'  => 'nullable'
+            'search' => 'nullable'
         ]);
 
         if ($validator->fails()) {
@@ -1896,7 +2017,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getFaqs() {
+    public function getFaqs()
+    {
         try {
             $faqs = Faq::get();
             ResponseService::successResponse("FAQ Data fetched Successfully", $faqs);
@@ -1907,7 +2029,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getAllBlogTags() {
+    public function getAllBlogTags()
+    {
         try {
             $tagsArray = [];
             Blog::select('tags')->chunk(100, function ($blogs) use (&$tagsArray) {
@@ -1926,10 +2049,11 @@ class ApiController extends Controller {
         }
     }
 
-    public function storeContactUs(Request $request) {
+    public function storeContactUs(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'name'    => 'required',
-            'email'   => 'required|email',
+            'name' => 'required',
+            'email' => 'required|email',
             'subject' => 'required',
             'message' => 'required'
         ]);
@@ -1947,9 +2071,10 @@ class ApiController extends Controller {
         }
     }
 
-    public function addItemReview(Request $request) {
+    public function addItemReview(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'review'  => 'nullable|string',
+            'review' => 'nullable|string',
             'ratings' => 'required|numeric|between:0,5',
             'item_id' => 'required',
         ]);
@@ -1969,11 +2094,11 @@ class ApiController extends Controller {
                 ResponseService::errorResponse("You have already reviewed this item.");
             }
             $review = SellerRating::create([
-                'item_id'   => $request->item_id,
-                'buyer_id'  => Auth::user()->id,
+                'item_id' => $request->item_id,
+                'buyer_id' => Auth::user()->id,
                 'seller_id' => $item->user_id,
-                'ratings'   => $request->ratings,
-                'review'    => $request->review ?? '',
+                'ratings' => $request->ratings,
+                'review' => $request->review ?? '',
             ]);
 
             ResponseService::successResponse("Your review has been submitted successfully.", $review);
@@ -1983,7 +2108,8 @@ class ApiController extends Controller {
         }
     }
 
-    public function getSeller(Request $request) {
+    public function getSeller(Request $request)
+    {
         $request->validate([
             'id' => 'required|integer'
         ]);
@@ -1998,7 +2124,7 @@ class ApiController extends Controller {
 
             // Response structure
             $response = [
-                'seller'  => [
+                'seller' => [
                     ...$seller->toArray(),
                     'average_rating' => $averageRating,
                 ],
@@ -2016,10 +2142,11 @@ class ApiController extends Controller {
     }
 
 
-    public function renewItem(Request $request) {
+    public function renewItem(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
-                'item_id'    => 'required|exists:items,id',
+                'item_id' => 'required|exists:items,id',
                 'package_id' => 'required|exists:packages,id',
             ]);
 
@@ -2032,7 +2159,7 @@ class ApiController extends Controller {
             $rawStatus = $item->getAttributes()['status'];
             $package = Package::where('id', $request->package_id)->firstOrFail();
             $userPackage = UserPurchasedPackage::onlyActive()->where([
-                'user_id'    => $user->id,
+                'user_id' => $user->id,
                 'package_id' => $package->id
             ])->first();
 
@@ -2042,14 +2169,14 @@ class ApiController extends Controller {
 
             $currentDate = Carbon::now();
             if (Carbon::parse($item->expiry_date)->gt($currentDate)) {
-                ResponseService::errorResponse("Item has not expired yet, so it cannot be renewed");
+                ResponseService::errorResponse("Advertisement has not expired yet, so it cannot be renewed");
             }
 
             $expiryDays = (int)$package->duration;
             $newExpiryDate = $currentDate->copy()->addDays($expiryDays);
-            if($package->duration == 'unlimited'){
+            if ($package->duration == 'unlimited') {
                 $item->expiry_date = null;
-            }else{
+            } else {
                 $item->expiry_date = $newExpiryDate;
             }
             $item->status = $rawStatus;
@@ -2057,20 +2184,21 @@ class ApiController extends Controller {
 
             ++$userPackage->used_limit;
             $userPackage->save();
-            ResponseService::successResponse("Item renewed successfully", $item);
+            ResponseService::successResponse("Advertisement renewed successfully", $item);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, "API Controller -> renewItem");
             ResponseService::errorResponse();
         }
     }
 
-    public function getMyReview(Request $request) {
+    public function getMyReview(Request $request)
+    {
         try {
             $ratings = SellerRating::where('seller_id', Auth::user()->id)->with('seller:id,name,profile', 'buyer:id,name,profile', 'item:id,name,price,image,description')->paginate(10);
             $averageRating = $ratings->avg('ratings');
             $response = [
                 'average_rating' => $averageRating,
-                'ratings'        => $ratings,
+                'ratings' => $ratings,
             ];
 
             ResponseService::successResponse("Seller Details Fetched Successfully", $response);
@@ -2080,9 +2208,10 @@ class ApiController extends Controller {
         }
     }
 
-    public function addReviewReport(Request $request) {
+    public function addReviewReport(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'report_reason'    => 'required|string',
+            'report_reason' => 'required|string',
             'seller_review_id' => 'required',
         ]);
         if ($validator->fails()) {
@@ -2103,7 +2232,8 @@ class ApiController extends Controller {
     }
 
 
-    public function getVerificationFields() {
+    public function getVerificationFields()
+    {
         try {
             $fields = VerificationField::all();
             ResponseService::successResponse("Verification Field Fetched Successfully", $fields);
@@ -2114,13 +2244,14 @@ class ApiController extends Controller {
         }
     }
 
-    public function sendVerificationRequest(Request $request) {
+    public function sendVerificationRequest(Request $request)
+    {
         try {
 
             $validator = Validator::make($request->all(), [
-                'verification_field'         => 'sometimes|array',
-                'verification_field.*'       => 'sometimes',
-                'verification_field_files'   => 'nullable|array',
+                'verification_field' => 'sometimes|array',
+                'verification_field.*' => 'sometimes',
+                'verification_field_files' => 'nullable|array',
                 'verification_field_files.*' => 'nullable|mimes:jpeg,png,jpg,pdf,doc|max:7168',
             ]);
 
@@ -2139,12 +2270,12 @@ class ApiController extends Controller {
                 $itemCustomFieldValues = [];
                 foreach ($request->verification_field as $id => $value) {
                     $itemCustomFieldValues[] = [
-                        'user_id'                 => $user->id,
-                        'verification_field_id'   => $id,
+                        'user_id' => $user->id,
+                        'verification_field_id' => $id,
                         'verification_request_id' => $verificationRequest->id,
-                        'value'                   => $value,
-                        'created_at'              => now(),
-                        'updated_at'              => now()
+                        'value' => $value,
+                        'created_at' => now(),
+                        'updated_at' => now()
                     ];
                 }
                 if (count($itemCustomFieldValues) > 0) {
@@ -2156,12 +2287,12 @@ class ApiController extends Controller {
                 $itemCustomFieldValues = [];
                 foreach ($request->verification_field_files as $fieldId => $file) {
                     $itemCustomFieldValues[] = [
-                        'user_id'                 => $user->id,
-                        'verification_field_id'   => $fieldId,
+                        'user_id' => $user->id,
+                        'verification_field_id' => $fieldId,
                         'verification_request_id' => $verificationRequest->id,
-                        'value'                   => !empty($file) ? FileService::upload($file, 'verification_field_files') : '',
-                        'created_at'              => now(),
-                        'updated_at'              => now()
+                        'value' => !empty($file) ? FileService::upload($file, 'verification_field_files') : '',
+                        'created_at' => now(),
+                        'updated_at' => now()
                     ];
                 }
                 if (count($itemCustomFieldValues) > 0) {
@@ -2178,7 +2309,8 @@ class ApiController extends Controller {
     }
 
 
-    public function getVerificationRequest(Request $request) {
+    public function getVerificationRequest(Request $request)
+    {
         try {
             $verificationRequest = VerificationRequest::with('verification_field_values')->owner()->first();
 
@@ -2233,7 +2365,9 @@ class ApiController extends Controller {
             ResponseService::errorResponse();
         }
     }
-    public function seoSettings(Request $request) {
+
+    public function seoSettings(Request $request)
+    {
         try {
             $validator = Validator::make($request->all(), [
                 'page' => 'nullable',
@@ -2254,7 +2388,9 @@ class ApiController extends Controller {
             ResponseService::errorResponse();
         }
     }
-    public function getCategories(Request $request) {
+
+    public function getCategories(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'language_code' => 'nullable'
         ]);
@@ -2263,7 +2399,7 @@ class ApiController extends Controller {
             ResponseService::validationError($validator->errors()->first());
         }
         try {
-            $categories  = Category::all();
+            $categories = Category::all();
             $languageCode = $request->get('language_code', 'en');
 
             $translator = new GoogleTranslate($languageCode);
@@ -2271,7 +2407,7 @@ class ApiController extends Controller {
             $translatedJson = $translator->translate($categoriesJson);
             $translatedCategories = json_decode($translatedJson, true);
 
-        return ResponseService::successResponse(null, $translatedCategories);
+            return ResponseService::successResponse(null, $translatedCategories);
             ResponseService::successResponse(null, $sql);
         } catch (Throwable $th) {
             ResponseService::logErrorResponse($th, 'API Controller -> getCategories');
@@ -2279,4 +2415,154 @@ class ApiController extends Controller {
         }
     }
 
+    public function bankTransferUpdate(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'payment_transection_id' => 'required|integer',
+                'payment_receipt' => 'required|file|mimes:jpg,jpeg,png|max:7048',
+            ]);
+
+            if ($validator->fails()) {
+                return ResponseService::validationError($validator->errors()->first());
+            }
+            $transaction = PaymentTransaction::where('user_id', Auth::user()->id)->findOrFail($request->payment_transection_id);
+
+            if (!$transaction) {
+                return ResponseService::errorResponse('Transaction not found.');
+            }
+            $receiptPath = !empty($request->file('payment_receipt'))
+                ? FileService::upload($request->file('payment_receipt'), 'bank-transfer')
+                : '';
+            $transaction->update([
+                'payment_receipt' => $receiptPath,
+                'payment_status' => 'under review',
+            ]);
+
+            return ResponseService::successResponse("Payment transaction updated successfully.", $transaction);
+        } catch (Throwable $th) {
+            ResponseService::logErrorResponse($th, "API Controller -> bankTransferUpdate");
+            return ResponseService::errorResponse();
+        }
+    }
+
+    public function getOtp(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'number' => 'required|string'
+            ]);
+
+            if ($validator->fails()) {
+                return ResponseService::validationError($validator->errors()->first());
+            }
+
+            // Format the phone number properly
+            $requestNumber = $request->number;
+            $trimmedNumber = ltrim($requestNumber, '+');
+            $toNumber = "+" . $trimmedNumber;
+
+            // Fetch Twilio credentials from settings
+            $twilioSettings = Setting::whereIn('name', [
+                'twilio_account_sid', 'twilio_auth_token', 'twilio_my_phone_number'
+            ])->pluck('value', 'name');
+
+            if (!$twilioSettings->all()) {
+                return ResponseService::errorResponse('Twilio settings are missing. Please contact admin.');
+            }
+
+            $sid = $twilioSettings['twilio_account_sid'];
+            $token = $twilioSettings['twilio_auth_token'];
+            $fromNumber = $twilioSettings['twilio_my_phone_number'];
+
+            $client = new TwilioRestClient($sid, $token);
+
+            // Validate phone number using Twilio Lookup API
+            try {
+                $client->lookups->v1->phoneNumbers($toNumber)->fetch();
+            } catch (Throwable $e) {
+                return ResponseService::errorResponse('Invalid phone number.');
+            }
+
+
+            $existingOtp = NumberOtp::where('number', $toNumber)->where('expire_at', '>', now())->first();
+            $otp = $existingOtp ? $existingOtp->otp : rand(100000, 999999);
+            $expireAt = now()->addMinutes(10);
+
+            NumberOtp::updateOrCreate(
+                ['number' => $toNumber],
+                ['otp' => $otp, 'expire_at' => $expireAt]
+            );
+
+            // Send OTP via Twilio
+            $client->messages->create($toNumber, [
+                'from' => $fromNumber,
+                'body' => "Your OTP is: $otp. It expires in 10 minutes."
+            ]);
+
+            return ResponseService::successResponse('OTP sent successfully.');
+        } catch (Throwable $th) {
+            ResponseService::logErrorResponse($th, "OTP Controller -> getOtp");
+            return ResponseService::errorResponse();
+        }
+    }
+
+    public function verifyOtp(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'number' => 'required|string',
+                'otp' => 'required|numeric|digits:6',
+            ]);
+
+            if ($validator->fails()) {
+                return ResponseService::validationError($validator->errors()->first());
+            }
+
+            $requestNumber = $request->number;
+            $trimmedNumber = ltrim($requestNumber, '+');
+            $toNumber = "+" . $trimmedNumber;
+
+            $otpRecord = NumberOtp::where('number', $toNumber)->first();
+
+            if (!$otpRecord) {
+                return ResponseService::errorResponse('OTP not found.');
+            }
+            if (now()->isAfter($otpRecord->expire_at)) {
+                return ResponseService::validationError('OTP has expired.');
+            }
+
+            if ($otpRecord->attempts >= 3) {
+                $otpRecord->delete();
+                return ResponseService::validationError('OTP expired after 3 failed attempts.');
+            }
+
+            if ($otpRecord->otp != $request->otp) {
+                $otpRecord->increment('attempts');
+                return ResponseService::validationError('Invalid OTP.');
+            }
+            $otpRecord->delete();
+
+            $user = User::where('mobile', $trimmedNumber)->where('type', 'phone')->first();
+
+            if (!$user) {
+                $user = User::create([
+                    'mobile' => $trimmedNumber,
+                    'type' => 'phone',
+                ]);
+
+                $user->assignRole('User');
+            }
+
+            Auth::login($user);
+            $auth = User::find(Auth::id());
+
+            $token = $auth->createToken($auth->name ?? '')->plainTextToken;
+
+            return ResponseService::successResponse('User logged-in successfully', $auth, ['token' => $token]);
+        } catch (Throwable $th) {
+            ResponseService::logErrorResponse($th, "OTP Controller -> verifyOtp");
+            return ResponseService::errorResponse();
+        }
+    }
 }

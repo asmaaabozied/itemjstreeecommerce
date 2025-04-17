@@ -15,12 +15,36 @@ class FileService {
      * @param $folder
      * @return string
      */
+
     public static function compressAndUpload($requestFile, $folder) {
         $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
-        if (in_array($requestFile->getClientOriginalExtension(), ['jpg', 'jpeg', 'png'])) {
+        if (in_array($requestFile->getClientOriginalExtension(), ['jpg', 'jpeg','JPG', 'png','PNG','JPEG','SVG','APNG'])) {
             // Check the Extension should be jpg or png and do compression
             $image = Image::make($requestFile)->encode(null, 60);
             Storage::disk(config('filesystems.default'))->put($folder . '/' . $file_name, $image);
+        } else {
+            // Else assign file as it is
+            $file = $requestFile;
+            $file->storeAs($folder, $file_name, 'public');
+        }
+        return $folder . '/' . $file_name;
+    }
+    public static function compressAndUploadAds($requestFile, $folder) {
+        $file_name = uniqid('', true) . time() . '.' . $requestFile->getClientOriginalExtension();
+                  if (in_array($requestFile->getClientOriginalExtension(), ['jpg', 'jpeg','JPG', 'png','PNG','JPEG','SVG','APNG'])) {
+
+
+            // Check the Extension should be jpg or png and do compression
+//            $image = Image::make($requestFile)->encode(null, 60);
+            $image = Image::make($requestFile);
+            //watermark
+            $watermark = Image::make(storage_path('app/public/settings/67f7f22c515292.869880281744302636.png'));
+                $watermark->resize(150, 150);
+            $image->insert($watermark, 'bottom-right', 2, 2);
+            $image->encode(null, 60);
+            Storage::disk(config('filesystems.default'))->put($folder . '/' . $file_name, $image);
+
+            $imagePath = Storage::disk(config('filesystems.default'))->url($folder . '/' . $file_name);
         } else {
             // Else assign file as it is
             $file = $requestFile;

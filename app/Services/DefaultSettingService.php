@@ -5,7 +5,7 @@ namespace App\Services;
 class DefaultSettingService {
 
     public static function get() {
-        $SYSTEM_VERSION = "2.4.0";
+        $SYSTEM_VERSION = "2.5.0";
         return [
             ['name' => 'currency_symbol', 'value' => '$', 'type' => 'string'],
             ['name' => 'ios_version', 'value' => '1.0.0', 'type' => 'string'],
@@ -59,11 +59,29 @@ class DefaultSettingService {
             ['name' => 'mobile_authentication', 'value' => '1', 'type' => 'boolean'],
             ['name' => 'google_authentication', 'value' => '1', 'type' => 'boolean'],
             ['name' => 'email_authentication', 'value' => '1', 'type' => 'boolean'],
-            ['name' => 'min_length', 'value' => '', 'type' => 'number'],
-            ['name' => 'max_length', 'value' => '', 'type' => 'number'],
+            ['name' => 'min_length', 'value' => '0', 'type' => 'number'],
+            ['name' => 'max_length', 'value' => '100', 'type' => 'number'],
             ['name' => 'currency_symbol_position', 'value' => 'right', 'type' => 'string'],
             ['name' => 'free_ad_listing', 'value' => '0', 'type' => 'boolean'],
-            ['name' => 'auto_approve_item', 'value' => '0', 'type' => 'boolean']
+            ['name' => 'auto_approve_item', 'value' => '0', 'type' => 'boolean'],
+            ['name' => 'auto_approve_edited_item', 'value' => '0', 'type' => 'boolean'],
+            ['name' => 'mail_mailer', 'value' => 'smtp', 'type' => 'string'],
+            ['name' => 'mail_host', 'value' => 'mailhog', 'type' => 'string'],
+            ['name' => 'mail_port', 'value' => '1025', 'type' => 'string'],
+            ['name' => 'mail_username', 'value' => '', 'type' => 'string'],
+            ['name' => 'mail_password', 'value' => '', 'type' => 'string'],
+            ['name' => 'mail_encryption', 'value' => 'tls', 'type' => 'string'],
+            ['name' => 'mail_from_address', 'value' => 'hello@example.com', 'type' => 'string'],
+            ['name' => 'depp_link_scheme', 'value' => 'eclassify', 'type' => 'string'],
+            ['name' => 'otp_service_provider', 'value' => 'firebase', 'type' => 'string'],
+            ['name' => 'account_holder_name', 'value' => '', 'type' => 'string'],
+            ['name' => 'bank_name', 'value' => '', 'type' => 'string'],
+            ['name' => 'account_number', 'value' => '', 'type' => 'string'],
+            ['name' => 'ifsc_swift_code', 'value' => '', 'type' => 'string'],
+            ['name' => 'bank_transfer_status', 'value' => '0', 'type' => 'boolean'],
+            ['name' => 'twilio_account_sid', 'value' => '', 'type' => 'string'],
+            ['name' => 'twilio_auth_token', 'value' => '', 'type' => 'string'],
+            ['name' => 'twilio_my_phone_number', 'value' => '', 'type' => 'string'],
         ];
 
     }

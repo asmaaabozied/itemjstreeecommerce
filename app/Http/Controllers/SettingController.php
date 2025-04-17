@@ -60,7 +60,7 @@ class SettingController extends Controller {
             "favicon_icon"           => "nullable|mimes:jpg,jpeg,png,svg|max:7168",
             "company_logo"           => "nullable|mimes:jpg,jpeg,png,svg|max:7168",
             "login_image"            => "nullable|mimes:jpg,jpeg,png,svg|max:7168",
-            "watermark_image"        => 'nullable|mimes:jpg,jpeg,png|max:7168',
+            // "watermark_image"        => 'nullable|mimes:jpg,jpeg,png|max:7168',
             "web_theme_color"        => "nullable",
             "place_api_key"          => "nullable",
             "header_logo"            => "nullable|mimes:jpg,jpeg,png,svg|max:7168",
@@ -81,6 +81,19 @@ class SettingController extends Controller {
             "google_authentication"    => "nullable",
             "email_authentication"    => "nullable",
             "apple_authenticaion"    =>"nullable",
+            // Email settings validation
+            "mail_mailer"            => "nullable",
+            "mail_host"              => "nullable",
+            "mail_port"              => "nullable",
+            "mail_username"          => "nullable",
+            "mail_password"          => "nullable",
+            "mail_encryption"        => "nullable",
+            "mail_from_address"      => "nullable|email",
+            'deep_link_scheme'       => 'nullable|string|regex:/^[a-z][a-z0-9]*$/|max:30',
+            "otp_service_provider"    => "nullable|in:firebase,twilio",
+            "twilio_account_sid"      => "nullable",
+            "twilio_auth_token"       => "nullable",
+            "twilio_my_phone_number"  => "nullable",
         ]);
         if (
             $request->has('mobile_authentication') && $request->mobile_authentication == 0 &&
@@ -156,6 +169,26 @@ class SettingController extends Controller {
                     'APP_NAME' => $inputs['company_name'],
                 ]);
             }
+
+            // Update .env file for email settings
+            $emailSettings = [
+                'MAIL_MAILER' => $inputs['mail_mailer'] ?? config('mail.mailer'),
+                'MAIL_HOST' => $inputs['mail_host'] ?? config('mail.host'),
+                'MAIL_PORT' => $inputs['mail_port'] ?? config('mail.port'),
+                'MAIL_USERNAME' => $inputs['mail_username'] ?? config('mail.username'),
+                'MAIL_PASSWORD' => $inputs['mail_password'] ?? config('mail.password'),
+                'MAIL_ENCRYPTION' => $inputs['mail_encryption'] ?? config('mail.encryption'),
+                'MAIL_FROM_ADDRESS' => $inputs['mail_from_address'] ?? config('mail.from.address'),
+            ];
+            HelperService::changeEnv($emailSettings);
+
+            if (!empty($inputs['otp_service_provider']) && $inputs['otp_service_provider'] === 'twilio') {
+                HelperService::changeEnv([
+                    'TWILIO_ACCOUNT_SID'   => $inputs['twilio_account_sid'] ?? config('services.twilio.account_sid'),
+                    'TWILIO_AUTH_TOKEN'    => $inputs['twilio_auth_token'] ?? config('services.twilio.auth_token'),
+                ]);
+            }
+
             CachingService::removeCache(config('constants.CACHE.SETTINGS'));
             ResponseService::successResponse('Settings Updated Successfully');
         } catch (Throwable $th) {
@@ -220,8 +253,8 @@ class SettingController extends Controller {
         foreach ($paymentConfiguration as $row) {
             $paymentGateway[$row->payment_method] = $row->toArray();
         }
-
-        return view('settings.payment-gateway', compact('paymentGateway'));
+        $settings = CachingService::getSystemSettings()->toArray();
+        return view('settings.payment-gateway', compact('paymentGateway','settings'));
     }
 
     public function paymentSettingsStore(Request $request) {
@@ -231,7 +264,8 @@ class SettingController extends Controller {
             'gateway.Stripe'   => 'required|array|required_array_keys:api_key,secret_key,webhook_secret_key,status',
             'gateway.Razorpay' => 'required|array|required_array_keys:api_key,secret_key,webhook_secret_key,status',
             'gateway.Paystack' => 'required|array|required_array_keys:api_key,secret_key,status',
-            'gateway.PhonePe' => 'required|array|required_array_keys:secret_key,status'
+            'gateway.PhonePe' => 'required|array|required_array_keys:secret_key,status',
+            'bank'             => 'required|array'
         ]);
         $gatewayStatuses = [
             $request->input('gateway.Stripe.status',0),
@@ -239,6 +273,7 @@ class SettingController extends Controller {
             $request->input('gateway.Paystack.status',0),
             $request->input('gateway.PhonePe.status',0),
             $request->input('gateway.flutterwave.status',0),
+            $request->input('bank.bank_transfer_status',0),
         ];
         if (!in_array('1', $gatewayStatuses, true)) {
             ResponseService::validationError('At least one payment gateway must be enabled.');
@@ -247,6 +282,10 @@ class SettingController extends Controller {
             ResponseService::validationError($validator->errors()->first());
         }
         try {
+
+            foreach ($request->input('bank') as $key => $value) {
+                Setting::updateOrCreate(['name' => $key], ['value' => $value]);
+            }
             foreach ($request->gateway as $key => $gateway) {
                 PaymentConfiguration::updateOrCreate(['payment_method' => $key], [
                     'api_key'            => $gateway["api_key"] ?? '',
@@ -358,7 +397,8 @@ class SettingController extends Controller {
         $appStoreLink = CachingService::getSystemSettings('app_store_link');
         $playStoreLink = CachingService::getSystemSettings('play_store_link');
         $appName = CachingService::getSystemSettings('company_name');
-        return view('deep-link.deep_link',compact('appStoreLink','playStoreLink','appName'));
+        $scheme = CachingService::getSystemSettings('deep_link_scheme');
+        return view('deep-link.deep_link',compact('appStoreLink','playStoreLink','appName','scheme'));
     }
 
     public function flutterWavePaymentSucesss(){

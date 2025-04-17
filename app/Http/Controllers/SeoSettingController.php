@@ -63,7 +63,7 @@ class SeoSettingController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    public function show(Request $request)
     {
         $offset = $request->offset ?? 0;
         $limit = $request->limit ?? 10;

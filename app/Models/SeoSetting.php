@@ -24,4 +24,10 @@ class SeoSetting extends Model
         }
         return $image;
     }
+    public function scopeSort($query, $column, $order) {
+
+        $query = $query->orderBy($column, $order);
+
+        return $query->select('seo_settings.*');
+    }
 }

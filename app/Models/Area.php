@@ -13,7 +13,9 @@ class Area extends Model {
         'country_id',
         'state_id',
         'city_id',
-        'state_code'
+        'state_code',
+        'latitude',
+        'longitude'
     ];
 
     public function city() {

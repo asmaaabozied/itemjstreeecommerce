@@ -53,10 +53,11 @@ class Blog extends Model {
 
     public function scopeSort($query, $column, $order) {
         if ($column == "category_name") {
-            $query = $query->leftJoin('categories', 'categories.id', '=', 'blogs.category_id')->orderBy('categories.name', $order);
-        } else {
-            $query = $query->orderBy($column, $order);
+            return $query->leftJoin('categories', 'categories.id', '=', 'blogs.category_id')
+                ->orderBy('categories.name', $order)
+                ->select('blogs.*');
         }
-        return $query->select('blogs.*');
+        return $query->orderBy($column, $order);
     }
+
 }

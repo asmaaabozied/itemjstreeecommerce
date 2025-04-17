@@ -19,6 +19,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
+        $schedule->command('notify:expiring-items')->dailyAt('09:00');
+        $schedule->command('notify:expiring-packages')->daily();
         // $schedule->command('inspire')->hourly();
     }
 

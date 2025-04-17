@@ -65,7 +65,7 @@ class FaqController extends Controller
             ResponseService::noPermissionThenSendJson('faq-list');
             $offset = $request->input('offset', 0);
             $limit = $request->input('limit', 10);
-            $sort = $request->input('sort', 'id');
+            $sort = $request->input('sort', 'sequence');
             $order = $request->input('order', 'ASC');
 
             $sql = Faq::orderBy($sort, $order);

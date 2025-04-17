@@ -74,7 +74,7 @@ class UserVerificationController extends Controller {
             VerificationField::create($data);
 
             DB::commit();
-            ResponseService::successResponse('Custom Field Added Successfully');
+            ResponseService::successResponse('Seller verification Field Added Successfully');
         } catch (Throwable $th) {
             DB::rollBack();
             ResponseService::logErrorResponse($th);
@@ -84,14 +84,14 @@ class UserVerificationController extends Controller {
 
     public function show(Request $request) {
         try {
-            ResponseService::noPermissionThenSendJson('seller-verification-request-list');
+            ResponseService::noPermissionThenSendJson('seller-verification-field-list');
 
             $offset = $request->input('offset', 0);
             $limit = $request->input('limit', 10);
             $sort = $request->input('sort', 'id');
             $order = $request->input('order', 'DESC');
 
-            $query = VerificationRequest::with('user', 'verification_field_values.verification_field')->orderBy($sort, $order);
+            $query = VerificationRequest::with('user', 'verification_field_values.verification_field');
 
             if (!empty($request->filter)) {
                 $filters = json_decode($request->filter, true, 512, JSON_THROW_ON_ERROR); // Decode as an associative array
@@ -110,7 +110,8 @@ class UserVerificationController extends Controller {
             }
 
             $total = $query->count();
-            $result = $query->skip($offset)->take($limit)->get();
+            $sql = $query->sort($sort, $order)->skip($offset)->take($limit);
+            $result = $sql->get();
             $no = 1;
 
             $bulkData = [
@@ -140,7 +141,7 @@ class UserVerificationController extends Controller {
 
                 $operate = '';
 
-                if (Auth::user()->can('verification_requests-update')) {
+                if (Auth::user()->can('seller-verification-field-update')) {
                     $operate .= BootstrapTableService::editButton(route('seller_verification.approval', $row->id), true, '#editStatusModal', 'edit-status', $row->id);
                     $operate .= BootstrapTableService::button('fa fa-eye', '#', ['view-verification-fields', 'btn-light-danger  '], ['title' => __("View"), "data-bs-target" => "#editModal", "data-bs-toggle" => "modal",]);
                 }
@@ -182,11 +183,11 @@ class UserVerificationController extends Controller {
             foreach ($result as $row) {
                 $tempRow = $row->toArray();
                 $operate = '';
-                if (Auth::user()->can('seller-verification.verification-field.update')) {
+                if (Auth::user()->can('seller-verification-field-update')) {
                     $operate .= BootstrapTableService::editButton(route('seller-verification.verification-field.edit', $row->id));
                 }
 
-                if (Auth::user()->can('verification-field-delete')) {
+                if (Auth::user()->can('seller-verification-field-delete')) {
                     $operate .= BootstrapTableService::deleteButton(route('seller-verification.verification-field.delete', $row->id));
                 }
                 $tempRow['operate'] = $operate;
@@ -356,7 +357,7 @@ class UserVerificationController extends Controller {
 
     public function updateSellerApproval(Request $request, $id) {
         try {
-            ResponseService::noPermissionThenSendJson('seller-verification-field-update');
+            ResponseService::noPermissionThenSendJson('seller-verification-request-update');
             $verification_field = VerificationRequest::with('user')->findOrFail($id);
             $newStatus = $request->input('status');
             $rejectionReason = $request->input('rejection_reason'); // Get the rejection reason from the request
