@@ -40,6 +40,7 @@
         "stripe/stripe-php": "^13.14",
         "sunra/php-simple-html-dom-parser": "^1.5",
         "symfony/dom-crawler": "^6.3",
+        "twilio/sdk": "^8.4",
         "unicodeveloper/laravel-paystack": "^1.2",
         "weidner/goutte": "^2.3"
     },
